@@ -1,15 +1,15 @@
 {
   "id": "./",
-  "name": "رسام - برنامج رسم فيكتور | Rasem Vector",
-  "short_name": "رسام",
-  "description": "تطبيق رسم وتصميم فيكتور رقمي احترافي متكامل يدعم الطبقات وأدوات الهندسة والتصدير بصيغ SVG و PNG و PDF.",
+  "name": "رسام فكتور بسيط",
+  "short_name": "رسام فكتور",
+  "description": "تطبيق احترافي للرسم والتصميم بالفكتور مع الطبقات والتصدير SVG وPNG وPDF.",
   "lang": "ar",
   "dir": "rtl",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#ffffff",
+  "background_color": "#2563eb",
   "theme_color": "#2563eb",
   "icons": [
     {
