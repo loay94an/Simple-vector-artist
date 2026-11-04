@@ -447,9 +447,13 @@ export class LayerPanel {
 
     const fragment = document.createDocumentFragment();
 
-    for (const layer of this.layers) {
-      const item = document.createElement("div");
+    const badge = document.getElementById("layersCountBadge");
+    if (badge) {
+      badge.textContent = String(this.layers.length);
+    }
 
+    this.layers.forEach((layer, index) => {
+      const item = document.createElement("div");
       item.className = "layer-item";
       item.dataset.layerId = layer.id;
 
@@ -457,70 +461,134 @@ export class LayerPanel {
         item.classList.add("active");
       }
 
+      const infoRow = document.createElement("div");
+      infoRow.className = "layer-info-row";
+
       const select = document.createElement("button");
       select.type = "button";
       select.dataset.action = "select";
       select.textContent = layer.name;
       select.className = "layer-name";
+      select.title = "انقر لتفعيل الطبقة، نقرتين لإعادة التسمية";
+      select.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        const newName = prompt("أدخل اسم الطبقة الجديد:", layer.name);
+        if (newName && newName.trim()) {
+          this.document.updateLayer(layer.id, { name: newName.trim() });
+          this.refresh();
+        }
+      });
 
+      const controls = document.createElement("div");
+      controls.className = "layer-controls";
+
+      // Move Up
+      const upBtn = document.createElement("button");
+      upBtn.type = "button";
+      upBtn.dataset.action = "move-up";
+      upBtn.innerHTML = "▲";
+      upBtn.title = "رفع الطبقة";
+      upBtn.disabled = index === 0;
+
+      // Move Down
+      const downBtn = document.createElement("button");
+      downBtn.type = "button";
+      downBtn.dataset.action = "move-down";
+      downBtn.innerHTML = "▼";
+      downBtn.title = "خفض الطبقة";
+      downBtn.disabled = index === this.layers.length - 1;
+
+      // Visibility
       const visibility = document.createElement("button");
       visibility.type = "button";
       visibility.dataset.action = "visibility";
-      visibility.textContent = layer.visible ? "◉" : "○";
-      visibility.setAttribute(
-        "aria-label",
-        "تغيير ظهور الطبقة"
-      );
+      visibility.textContent = layer.visible !== false ? "👁" : "🕶";
+      visibility.title = "إظهار/إخفاء الطبقة";
 
+      // Lock
       const lock = document.createElement("button");
       lock.type = "button";
       lock.dataset.action = "lock";
       lock.textContent = layer.locked ? "🔒" : "🔓";
-      lock.setAttribute(
-        "aria-label",
-        "قفل الطبقة"
-      );
+      lock.title = "قفل/إلغاء قفل الطبقة";
 
-      item.append(select, visibility, lock);
+      // Delete (if more than 1 layer)
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.dataset.action = "delete";
+      delBtn.innerHTML = "✕";
+      delBtn.title = "حذف الطبقة";
+      if (this.layers.length <= 1) delBtn.disabled = true;
+
+      controls.append(upBtn, downBtn, visibility, lock, delBtn);
+      infoRow.append(select, controls);
+
+      // Opacity row
+      const opRow = document.createElement("div");
+      opRow.className = "layer-opacity-row";
+      opRow.innerHTML = `
+        <span class="layer-op-label">الشفافية: ${Math.round((layer.opacity ?? 1) * 100)}%</span>
+        <input type="range" class="layer-opacity-slider" min="0" max="1" step="0.05" value="${layer.opacity ?? 1}" data-layer-id="${layer.id}">
+      `;
+
+      const opInput = opRow.querySelector("input");
+      opInput?.addEventListener("input", (e) => {
+        const val = parseFloat(e.target.value);
+        this.document.updateLayer(layer.id, { opacity: val });
+        const label = opRow.querySelector(".layer-op-label");
+        if (label) label.textContent = `الشفافية: ${Math.round(val * 100)}%`;
+        this.renderer?.render(this.document);
+      });
+
+      item.append(infoRow, opRow);
       fragment.appendChild(item);
-    }
+    });
 
     this.root.replaceChildren(fragment);
   }
 
   onClick(event) {
     const button = event.target.closest("[data-action]");
-
-    if (!button || !this.root?.contains(button)) {
-      return;
-    }
+    if (!button || !this.root?.contains(button)) return;
 
     const item = button.closest("[data-layer-id]");
-
     if (!item) return;
 
-    const layer = this.layers.find(
+    const layerIndex = this.layers.findIndex(
       entry => entry.id === item.dataset.layerId
     );
-
-    if (!layer) return;
+    if (layerIndex === -1) return;
+    const layer = this.layers[layerIndex];
 
     const action = button.dataset.action;
 
     if (action === "select") {
       this.document.setActiveLayer(layer.id);
-    }
-
-    if (action === "visibility") {
+    } else if (action === "visibility") {
       this.document.updateLayer(layer.id, {
-        visible: !layer.visible
+        visible: layer.visible === false ? true : false
       });
-    }
-
-    if (action === "lock") {
+    } else if (action === "lock") {
       this.document.updateLayer(layer.id, {
         locked: !layer.locked
       });
+    } else if (action === "move-up" && layerIndex > 0) {
+      const temp = this.layers[layerIndex];
+      this.layers[layerIndex] = this.layers[layerIndex - 1];
+      this.layers[layerIndex - 1] = temp;
+      this.document.touch?.();
+    } else if (action === "move-down" && layerIndex < this.layers.length - 1) {
+      const temp = this.layers[layerIndex];
+      this.layers[layerIndex] = this.layers[layerIndex + 1];
+      this.layers[layerIndex + 1] = temp;
+      this.document.touch?.();
+    } else if (action === "delete") {
+      if (this.layers.length > 1) {
+        if (confirm(`هل أنت متأكد من حذف طبقة "${layer.name}"؟`)) {
+          this.remove(layer.id);
+          return;
+        }
+      }
     }
 
     this.renderer?.render(this.document);
@@ -534,12 +602,11 @@ export class LayerPanel {
 
   add(name = "طبقة جديدة") {
     const layer = this.document?.addLayer(name);
-
     if (!layer) return null;
 
+    this.document.setActiveLayer(layer.id);
     this.renderer?.render(this.document);
     this.refresh();
-
     return layer;
   }
 
@@ -550,7 +617,6 @@ export class LayerPanel {
 
     this.renderer?.render(this.document);
     this.refresh();
-
     return true;
   }
 

@@ -216,21 +216,19 @@ activate() {
 }
 
 /* =========================================================
-   6. ERASER
+   6. CALLIGRAPHY (قلم الخط العربي المشطوف)
 ========================================================= */
 
-export class Eraser extends BaseTool {
+export class Calligraphy extends BaseTool {
   constructor(engine, camera) {
     super(engine, camera);
-    this.name = "eraser";
+    this.name = "calligraphy";
   }
 
   activate() {
     super.activate();
-
     this.engine.setSettings({
-      tool: "eraser",
-      pressureEnabled: false
+      tool: "calligraphy"
     });
   }
 
@@ -252,22 +250,79 @@ export class Eraser extends BaseTool {
 }
 
 /* =========================================================
-   7. SELECTOR
+   7. DUAL-MODE ERASER (الممحاة الذكية المزدوجة)
+========================================================= */
+
+export class Eraser extends BaseTool {
+  constructor(engine, camera) {
+    super(engine, camera);
+    this.name = "eraser";
+    this.mode = "partial";
+  }
+
+  activate() {
+    const wasActive = this.active;
+    super.activate();
+
+    if (wasActive) {
+      this.mode = this.mode === "partial" ? "stroke" : "partial";
+    } else {
+      this.mode = "partial";
+    }
+
+    this.engine.setSettings({
+      tool: "eraser",
+      eraserMode: this.mode,
+      pressureEnabled: false
+    });
+
+    window.dispatchEvent(new CustomEvent("rasem:eraser-mode", {
+      detail: { mode: this.mode }
+    }));
+  }
+
+  setMode(mode) {
+    if (mode === "partial" || mode === "stroke") {
+      this.mode = mode;
+      this.engine.setSettings({ eraserMode: this.mode });
+      window.dispatchEvent(new CustomEvent("rasem:eraser-mode", {
+        detail: { mode: this.mode }
+      }));
+    }
+  }
+
+  down(event) {
+    return this.engine.start(event);
+  }
+
+  move(event) {
+    return this.engine.move(event);
+  }
+
+  up(event) {
+    return this.engine.end(event);
+  }
+
+  cancel() {
+    return this.engine.cancel();
+  }
+}
+
+/* =========================================================
+   8. SELECTOR (أداة التحديد وصندوق الإحاطة والمقابض)
 ========================================================= */
 
 export class Selector extends BaseTool {
   constructor(engine, camera) {
     super(engine, camera);
-
     this.name = "selector";
-
     this.selectedIds = new Set();
-
     this.pointerDown = false;
     this.startPoint = null;
-    this.lastPoint = null;
-
-    this.originalTransforms = new Map();
+    this.dragMode = null;
+    this.activeHandle = null;
+    this.initialSnapshot = new Map();
+    this.initialBounds = null;
     this.moved = false;
   }
 
@@ -275,15 +330,16 @@ export class Selector extends BaseTool {
     return this.engine.activeLayer;
   }
 
+  setSelection(ids) {
+    this.selectedIds = new Set(ids);
+    this.renderOverlay();
+    this.emitChange();
+  }
+
   select(id, additive = false) {
     const layer = this.getLayer();
-
     if (!layer) return false;
-
-    const element = layer.elements.find(
-      item => item.id === id
-    );
-
+    const element = layer.elements.find(item => item.id === id);
     if (!element) return false;
 
     if (!additive) {
@@ -296,169 +352,386 @@ export class Selector extends BaseTool {
       this.selectedIds.add(id);
     }
 
+    this.renderOverlay();
+    this.emitChange();
     return true;
   }
 
   clearSelection() {
     this.selectedIds.clear();
-    this.originalTransforms.clear();
+    this.initialSnapshot.clear();
     this.moved = false;
+    this.clearOverlay();
+    this.emitChange();
   }
 
   getSelectedElements() {
     const layer = this.getLayer();
-
     if (!layer) return [];
+    return layer.elements.filter(element => this.selectedIds.has(element.id));
+  }
 
-    return layer.elements.filter(
-      element => this.selectedIds.has(element.id)
-    );
+  getBounds() {
+    const elements = this.getSelectedElements();
+    if (!elements.length) return null;
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const el of elements) {
+      if (Array.isArray(el.points) && el.points.length > 0) {
+        for (const pt of el.points) {
+          minX = Math.min(minX, pt.x);
+          minY = Math.min(minY, pt.y);
+          maxX = Math.max(maxX, pt.x);
+          maxY = Math.max(maxY, pt.y);
+        }
+      } else if (el.geometry) {
+        const g = el.geometry;
+        if (Number.isFinite(g.x) && Number.isFinite(g.width)) {
+          minX = Math.min(minX, g.x);
+          minY = Math.min(minY, g.y);
+          maxX = Math.max(maxX, g.x + g.width);
+          maxY = Math.max(maxY, g.y + g.height);
+        } else if (Number.isFinite(g.cx)) {
+          const rx = g.rx ?? g.r ?? 10;
+          const ry = g.ry ?? g.r ?? 10;
+          minX = Math.min(minX, g.cx - rx);
+          minY = Math.min(minY, g.cy - ry);
+          maxX = Math.max(maxX, g.cx + rx);
+          maxY = Math.max(maxY, g.cy + ry);
+        }
+      }
+    }
+
+    if (!Number.isFinite(minX)) return null;
+
+    return {
+      minX,
+      minY,
+      maxX,
+      maxY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY),
+      cx: (minX + maxX) / 2,
+      cy: (minY + maxY) / 2
+    };
+  }
+
+  renderOverlay() {
+    const bounds = this.getBounds();
+    const viewport = this.engine.renderer?.viewport;
+    if (!viewport) return;
+
+    let overlay = viewport.querySelector("#selectionOverlay");
+    if (!overlay) {
+      overlay = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      overlay.id = "selectionOverlay";
+      viewport.appendChild(overlay);
+    }
+
+    if (!bounds) {
+      overlay.replaceChildren();
+      return;
+    }
+
+    const { minX, minY, width, height, maxX, maxY } = bounds;
+    const padding = 6;
+    const bx = minX - padding;
+    const by = minY - padding;
+    const bw = width + padding * 2;
+    const bh = height + padding * 2;
+
+    const handles = [
+      { name: "tl", x: bx, y: by, cursor: "nwse-resize" },
+      { name: "tr", x: bx + bw, y: by, cursor: "nesw-resize" },
+      { name: "br", x: bx + bw, y: by + bh, cursor: "nwse-resize" },
+      { name: "bl", x: bx, y: by + bh, cursor: "nesw-resize" },
+      { name: "tc", x: bx + bw / 2, y: by, cursor: "ns-resize" },
+      { name: "bc", x: bx + bw / 2, y: by + bh, cursor: "ns-resize" },
+      { name: "ml", x: bx, y: by + bh / 2, cursor: "ew-resize" },
+      { name: "mr", x: bx + bw, y: by + bh / 2, cursor: "ew-resize" }
+    ];
+
+    let html = "";
+
+    // Individual dashed outlines around each selected item when multiple are chosen
+    if (this.selectedIds.size > 1) {
+      for (const el of this.getSelectedElements()) {
+        const eb = ToolUtils.elementBounds(el);
+        if (eb) {
+          html += `
+            <rect x="${eb.minX - 3}" y="${eb.minY - 3}" width="${eb.width + 6}" height="${eb.height + 6}"
+                  rx="3" fill="rgba(59, 130, 246, 0.05)" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="4 3"
+                  pointer-events="none"/>
+          `;
+        }
+      }
+    }
+
+    // Main enclosing dashed selection box
+    html += `
+      <rect x="${bx}" y="${by}" width="${bw}" height="${bh}"
+            fill="rgba(37, 99, 235, 0.08)"
+            stroke="#2563eb" stroke-width="2" stroke-dasharray="6 4"
+            pointer-events="none"/>
+    `;
+
+    for (const h of handles) {
+      html += `
+        <rect class="selection-handle" data-handle="${h.name}"
+              x="${h.x - 5}" y="${h.y - 5}" width="10" height="10" rx="2"
+              fill="#ffffff" stroke="#2563eb" stroke-width="2"
+              style="cursor:${h.cursor}; touch-action:none;"/>
+      `;
+    }
+
+    overlay.innerHTML = html;
+  }
+
+  clearOverlay() {
+    const viewport = this.engine.renderer?.viewport;
+    const overlay = viewport?.querySelector("#selectionOverlay");
+    if (overlay) overlay.replaceChildren();
+  }
+
+  emitChange() {
+    window.dispatchEvent(new CustomEvent("rasem:selection-change", {
+      detail: {
+        count: this.selectedIds.size,
+        bounds: this.getBounds()
+      }
+    }));
   }
 
   down(event) {
-    const point = ToolUtils.eventPoint(
-      this.engine,
-      event
-    );
-
+    const point = ToolUtils.eventPoint(this.engine, event);
     if (!point) return false;
 
-    const hit = this.engine.hitTest(point, 8);
+    const handleEl = event.target?.closest?.("[data-handle]");
+    if (handleEl && this.selectedIds.size > 0) {
+      this.pointerDown = true;
+      this.dragMode = "handle";
+      this.activeHandle = handleEl.dataset.handle;
+      this.startPoint = point;
+      this.initialBounds = this.getBounds();
+      this.snapshotElements();
+      this.moved = false;
+      return true;
+    }
 
-    if (!hit) {
-      if (!event.shiftKey) {
-        this.clearSelection();
+    const hit = this.engine.hitTest(point, 10);
+    const bounds = this.getBounds();
+    const insideBounds = bounds &&
+      point.x >= bounds.minX - 8 && point.x <= bounds.maxX + 8 &&
+      point.y >= bounds.minY - 8 && point.y <= bounds.maxY + 8;
+
+    if (hit) {
+      if (!this.selectedIds.has(hit.id)) {
+        this.select(hit.id, event.shiftKey);
       }
-
-      this.pointerDown = false;
-      return false;
+      this.pointerDown = true;
+      this.dragMode = "move";
+      this.startPoint = point;
+      this.snapshotElements();
+      this.moved = false;
+      return true;
     }
 
-    this.select(hit.id, event.shiftKey);
-
-    this.pointerDown = true;
-    this.startPoint = point;
-    this.lastPoint = point;
-    this.moved = false;
-
-    this.originalTransforms.clear();
-
-    for (const element of this.getSelectedElements()) {
-      this.originalTransforms.set(
-        element.id,
-        element.transform || ""
-      );
+    if (insideBounds && this.selectedIds.size > 0) {
+      this.pointerDown = true;
+      this.dragMode = "move";
+      this.startPoint = point;
+      this.snapshotElements();
+      this.moved = false;
+      return true;
     }
 
-    return true;
+    if (!event.shiftKey) {
+      this.clearSelection();
+    }
+    this.pointerDown = false;
+    return false;
+  }
+
+  snapshotElements() {
+    this.initialSnapshot.clear();
+    for (const el of this.getSelectedElements()) {
+      this.initialSnapshot.set(el.id, {
+        points: Array.isArray(el.points) ? el.points.map(p => ({ ...p })) : null,
+        geometry: el.geometry ? { ...el.geometry } : null,
+        path: el.path
+      });
+    }
   }
 
   move(event) {
     if (!this.pointerDown) return false;
-
-    const point = ToolUtils.eventPoint(
-      this.engine,
-      event
-    );
-
+    const point = ToolUtils.eventPoint(this.engine, event);
     if (!point) return false;
 
-    const dx = point.x - this.lastPoint.x;
-    const dy = point.y - this.lastPoint.y;
-
-    if (Math.hypot(dx, dy) < 0.0001) {
-      return false;
-    }
-
     const layer = this.getLayer();
-
     if (!layer || layer.locked) return false;
 
-    for (const element of this.getSelectedElements()) {
-      const original =
-        this.originalTransforms.get(element.id) || "";
+    const dx = point.x - this.startPoint.x;
+    const dy = point.y - this.startPoint.y;
 
-      element.transform =
-        `${original} translate(${dx} ${dy})`.trim();
+    if (this.dragMode === "move") {
+      for (const el of this.getSelectedElements()) {
+        const snap = this.initialSnapshot.get(el.id);
+        if (!snap) continue;
+
+        if (Array.isArray(snap.points)) {
+          el.points = snap.points.map(p => ({
+            ...p,
+            x: p.x + dx,
+            y: p.y + dy
+          }));
+          el.path = this.engine.buildPath(el.points);
+        } else if (snap.geometry) {
+          el.geometry = { ...snap.geometry };
+          if (Number.isFinite(el.geometry.x)) el.geometry.x = snap.geometry.x + dx;
+          if (Number.isFinite(el.geometry.y)) el.geometry.y = snap.geometry.y + dy;
+          if (Number.isFinite(el.geometry.cx)) el.geometry.cx = snap.geometry.cx + dx;
+          if (Number.isFinite(el.geometry.cy)) el.geometry.cy = snap.geometry.cy + dy;
+          if (Number.isFinite(el.geometry.x1)) {
+            el.geometry.x1 = snap.geometry.x1 + dx;
+            el.geometry.y1 = snap.geometry.y1 + dy;
+            el.geometry.x2 = snap.geometry.x2 + dx;
+            el.geometry.y2 = snap.geometry.y2 + dy;
+          }
+        }
+      }
+      this.moved = true;
+      this.engine.renderer.renderActiveLayer(layer);
+      this.renderOverlay();
+      return true;
     }
 
-    this.lastPoint = point;
-    this.moved = true;
+    if (this.dragMode === "handle" && this.initialBounds) {
+      const ib = this.initialBounds;
+      let scaleX = 1;
+      let scaleY = 1;
+      let originX = ib.cx;
+      let originY = ib.cy;
 
-    this.engine.document.touch?.();
+      if (this.activeHandle === "br") {
+        originX = ib.minX;
+        originY = ib.minY;
+        scaleX = Math.max(0.1, (ib.width + dx) / ib.width);
+        scaleY = Math.max(0.1, (ib.height + dy) / ib.height);
+      } else if (this.activeHandle === "tl") {
+        originX = ib.maxX;
+        originY = ib.maxY;
+        scaleX = Math.max(0.1, (ib.width - dx) / ib.width);
+        scaleY = Math.max(0.1, (ib.height - dy) / ib.height);
+      } else if (this.activeHandle === "tr") {
+        originX = ib.minX;
+        originY = ib.maxY;
+        scaleX = Math.max(0.1, (ib.width + dx) / ib.width);
+        scaleY = Math.max(0.1, (ib.height - dy) / ib.height);
+      } else if (this.activeHandle === "bl") {
+        originX = ib.maxX;
+        originY = ib.minY;
+        scaleX = Math.max(0.1, (ib.width - dx) / ib.width);
+        scaleY = Math.max(0.1, (ib.height + dy) / ib.height);
+      } else if (this.activeHandle === "mr") {
+        originX = ib.minX;
+        scaleX = Math.max(0.1, (ib.width + dx) / ib.width);
+      } else if (this.activeHandle === "bc") {
+        originY = ib.minY;
+        scaleY = Math.max(0.1, (ib.height + dy) / ib.height);
+      }
 
-    this.engine.renderer.renderActiveLayer(layer);
+      for (const el of this.getSelectedElements()) {
+        const snap = this.initialSnapshot.get(el.id);
+        if (!snap) continue;
 
-    return true;
+        if (Array.isArray(snap.points)) {
+          el.points = snap.points.map(p => ({
+            ...p,
+            x: originX + (p.x - originX) * scaleX,
+            y: originY + (p.y - originY) * scaleY
+          }));
+          el.path = this.engine.buildPath(el.points);
+        }
+      }
+
+      this.moved = true;
+      this.engine.renderer.renderActiveLayer(layer);
+      this.renderOverlay();
+      return true;
+    }
+
+    return false;
   }
 
   up() {
     if (!this.pointerDown) return false;
-
     this.pointerDown = false;
+    this.dragMode = null;
+    this.activeHandle = null;
 
     if (this.moved) {
+      this.engine.document.touch?.();
       this.engine.commitHistory();
       this.engine.renderer.render(this.engine.document);
+      this.renderOverlay();
+      this.emitChange();
     }
-
-    this.startPoint = null;
-    this.lastPoint = null;
-    this.originalTransforms.clear();
 
     const changed = this.moved;
     this.moved = false;
-
     return changed;
   }
 
-  cancel() {
-    if (!this.pointerDown) return false;
-
+  deleteSelected() {
     const layer = this.getLayer();
+    if (!layer || !this.selectedIds.size) return false;
 
-    for (const element of this.getSelectedElements()) {
-      element.transform =
-        this.originalTransforms.get(element.id) || "";
-    }
-
-    this.pointerDown = false;
-    this.moved = false;
-
-    this.startPoint = null;
-    this.lastPoint = null;
-    this.originalTransforms.clear();
-
-    if (layer) {
-      this.engine.renderer.renderActiveLayer(layer);
-    }
-
+    layer.elements = layer.elements.filter(el => !this.selectedIds.has(el.id));
+    this.clearSelection();
+    this.engine.document.touch?.();
+    this.engine.commitHistory();
+    this.engine.renderer.render(this.engine.document);
     return true;
   }
 
-  deleteSelection() {
+  duplicateSelected() {
     const layer = this.getLayer();
+    if (!layer || !this.selectedIds.size) return false;
 
-    if (!layer || layer.locked || !this.selectedIds.size) {
-      return false;
+    const newIds = new Set();
+    const cloned = [];
+
+    for (const el of this.getSelectedElements()) {
+      const copy = EngineUtils.clone(el);
+      copy.id = EngineUtils.createId(copy.type || "element");
+      if (Array.isArray(copy.points)) {
+        copy.points = copy.points.map(p => ({ ...p, x: p.x + 20, y: p.y + 20 }));
+        copy.path = this.engine.buildPath(copy.points);
+      } else if (copy.geometry) {
+        if (Number.isFinite(copy.geometry.x)) copy.geometry.x += 20;
+        if (Number.isFinite(copy.geometry.y)) copy.geometry.y += 20;
+      }
+      cloned.push(copy);
+      newIds.add(copy.id);
     }
 
-    const before = layer.elements.length;
-
-    layer.elements = layer.elements.filter(
-      element => !this.selectedIds.has(element.id)
-    );
-
-    if (layer.elements.length === before) {
-      return false;
-    }
-
+    layer.elements.push(...cloned);
+    this.selectedIds = newIds;
     this.engine.document.touch?.();
-    this.clearSelection();
-
     this.engine.commitHistory();
     this.engine.renderer.render(this.engine.document);
+    this.renderOverlay();
+    this.emitChange();
+    return true;
+  }
 
+  cancel() {
+    this.clearSelection();
     return true;
   }
 
@@ -469,122 +742,141 @@ export class Selector extends BaseTool {
 }
 
 /* =========================================================
-   8. LASSO
+   9. LASSO (التحديد الحر)
 ========================================================= */
 
 export class Lasso extends BaseTool {
   constructor(engine, camera) {
     super(engine, camera);
-
     this.name = "lasso";
-
     this.points = [];
     this.selectedIds = new Set();
-
     this.drawing = false;
-    this.previewId = "lasso-preview";
+  }
+
+  renderTrail() {
+    const viewport = this.engine.renderer?.viewport;
+    if (!viewport) return;
+
+    let trail = viewport.querySelector("#lassoTrail");
+    if (!this.drawing || this.points.length < 2) {
+      if (trail) trail.remove();
+      return;
+    }
+
+    if (!trail) {
+      trail = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      trail.id = "lassoTrail";
+      trail.setAttribute("stroke", "#2563eb");
+      trail.setAttribute("stroke-width", "2");
+      trail.setAttribute("stroke-dasharray", "6 4");
+      trail.setAttribute("stroke-linecap", "round");
+      trail.setAttribute("stroke-linejoin", "round");
+      trail.setAttribute("fill", "rgba(37, 99, 235, 0.12)");
+      trail.setAttribute("pointer-events", "none");
+      viewport.appendChild(trail);
+    }
+
+    const d = this.points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ") + " Z";
+    trail.setAttribute("d", d);
+  }
+
+  clearTrail() {
+    const viewport = this.engine.renderer?.viewport;
+    const trail = viewport?.querySelector("#lassoTrail");
+    if (trail) trail.remove();
   }
 
   down(event) {
-    const point = ToolUtils.eventPoint(
-      this.engine,
-      event
-    );
-
+    const point = ToolUtils.eventPoint(this.engine, event);
     if (!point) return false;
-
+    this.clearTrail();
     this.points = [point];
     this.drawing = true;
-
     return true;
   }
 
   move(event) {
     if (!this.drawing) return false;
-
-    const point = ToolUtils.eventPoint(
-      this.engine,
-      event
-    );
-
+    const point = ToolUtils.eventPoint(this.engine, event);
     if (!point) return false;
 
     const previous = this.points.at(-1);
-
-    if (ToolUtils.distance(previous, point) < 1) {
-      return false;
-    }
+    if (previous && ToolUtils.distance(previous, point) < 2) return false;
 
     this.points.push(point);
-
+    this.renderTrail();
     return true;
   }
 
   up(event) {
     if (!this.drawing) return false;
-
-    const point = ToolUtils.eventPoint(
-      this.engine,
-      event
-    );
-
-    if (point) {
-      this.points.push(point);
-    }
-
+    const point = ToolUtils.eventPoint(this.engine, event);
+    if (point) this.points.push(point);
     this.drawing = false;
+    this.clearTrail();
 
     const layer = this.engine.activeLayer;
-
     if (!layer) return false;
 
     this.selectedIds.clear();
 
     if (this.points.length >= 3) {
       for (const element of layer.elements) {
-        if (!Array.isArray(element.points)) continue;
+        if (!element || element.visible === false) continue;
 
-        const intersects = element.points.some(
-          p => HitTesting.pointInPolygon(
-            p,
-            this.points
-          )
-        );
+        if (Array.isArray(element.points) && element.points.length > 0) {
+          const intersects = element.points.some(p =>
+            HitTesting.pointInPolygon(p, this.points)
+          );
+          if (intersects) {
+            this.selectedIds.add(element.id);
+          }
+        } else if (element.geometry) {
+          const g = element.geometry;
+          const x = g.x ?? (g.cx ? g.cx - (g.rx || g.r || 10) : (g.x1 ?? 0));
+          const y = g.y ?? (g.cy ? g.cy - (g.ry || g.r || 10) : (g.y1 ?? 0));
+          const w = g.width ?? (g.rx ? g.rx * 2 : Math.abs((g.x2 ?? 0) - (g.x1 ?? 0)));
+          const h = g.height ?? (g.ry ? g.ry * 2 : Math.abs((g.y2 ?? 0) - (g.y1 ?? 0)));
 
-        if (intersects) {
-          this.selectedIds.add(element.id);
+          const corners = [
+            { x: x + w / 2, y: y + h / 2 },
+            { x, y },
+            { x: x + w, y },
+            { x: x + w, y: y + h },
+            { x, y: y + h }
+          ];
+
+          if (corners.some(c => HitTesting.pointInPolygon(c, this.points))) {
+            this.selectedIds.add(element.id);
+          }
         }
       }
     }
 
     this.points = [];
 
+    // Transfer selection directly to Selector tool and show overlay
+    const tm = this.toolManager || this.engine.toolManager || window.rasem?.tools;
+    const selector = tm?.getTool?.("selector") || tm?.get?.("selector");
+    if (selector && this.selectedIds.size > 0) {
+      selector.setSelection(this.selectedIds);
+      tm?.activate?.("selector");
+    }
+
     return this.selectedIds.size > 0;
   }
 
   cancel() {
-    if (!this.drawing) return false;
-
     this.drawing = false;
     this.points = [];
-
-    this.engine.renderer.clearPreview(this.previewId);
-
+    this.clearTrail();
     return true;
-  }
-
-  getSelection() {
-    const layer = this.engine.activeLayer;
-
-    if (!layer) return [];
-
-    return layer.elements.filter(
-      element => this.selectedIds.has(element.id)
-    );
   }
 
   clearSelection() {
     this.selectedIds.clear();
+    this.clearTrail();
   }
 
   destroy() {
@@ -605,11 +897,29 @@ export class Shapes extends BaseTool {
     this.name = "shapes";
 
     this.shape = "rect";
+    this.strokeWidth = 3;
+    this.strokeColor = null;
+    this.fillEnabled = false;
+    this.fillColor = "#2563eb";
+    this.strokeStyle = "solid";
+    this.dashArray = "";
+    this.cornerRadius = 0;
+
     this.startPoint = null;
     this.currentPoint = null;
 
     this.drawing = false;
     this.previewId = null;
+
+    try {
+      const saved = JSON.parse(localStorage.getItem("rasem-shapes-options-v1") || "{}");
+      if (saved.shape) this.shape = saved.shape;
+      if (Number.isFinite(saved.strokeWidth)) this.strokeWidth = saved.strokeWidth;
+      if (typeof saved.fillEnabled === "boolean") this.fillEnabled = saved.fillEnabled;
+      if (saved.fillColor) this.fillColor = saved.fillColor;
+      if (saved.strokeStyle) this.strokeStyle = saved.strokeStyle;
+      if (Number.isFinite(saved.cornerRadius)) this.cornerRadius = saved.cornerRadius;
+    } catch {}
   }
 
   setShape(shape) {
@@ -630,8 +940,39 @@ export class Shapes extends BaseTool {
     }
 
     this.shape = shape;
-
+    this.saveOptions();
     return true;
+  }
+
+  setOptions(options = {}) {
+    if (typeof options.shape === "string") this.setShape(options.shape);
+    if (Number.isFinite(options.strokeWidth)) this.strokeWidth = Math.max(0.5, options.strokeWidth);
+    if (typeof options.fillEnabled === "boolean") this.fillEnabled = options.fillEnabled;
+    if (typeof options.fillColor === "string") this.fillColor = options.fillColor;
+    if (typeof options.strokeColor === "string") this.strokeColor = options.strokeColor;
+    if (typeof options.strokeStyle === "string") this.strokeStyle = options.strokeStyle;
+    if (typeof options.dashArray === "string") this.dashArray = options.dashArray;
+    if (Number.isFinite(options.cornerRadius)) this.cornerRadius = Math.max(0, options.cornerRadius);
+    this.saveOptions();
+  }
+
+  saveOptions() {
+    try {
+      localStorage.setItem("rasem-shapes-options-v1", JSON.stringify({
+        shape: this.shape,
+        strokeWidth: this.strokeWidth,
+        fillEnabled: this.fillEnabled,
+        fillColor: this.fillColor,
+        strokeStyle: this.strokeStyle,
+        cornerRadius: this.cornerRadius
+      }));
+    } catch {}
+  }
+
+  getDashArray() {
+    if (this.strokeStyle === "dashed") return "8 5";
+    if (this.strokeStyle === "dotted") return "3 3";
+    return this.dashArray || "";
   }
 
   activate() {
@@ -644,11 +985,23 @@ export class Shapes extends BaseTool {
   }
 
   createShape(a, b) {
+    const strokeW = Number.isFinite(this.strokeWidth) && this.strokeWidth > 0
+      ? this.strokeWidth
+      : (this.engine.settings.size || 3);
+
+    const strokeC = this.strokeColor || this.engine.settings.color || "#111111";
+
+    const isNonClosed = ["line", "curve", "arrow"].includes(this.shape);
+    const fill = (!isNonClosed && this.fillEnabled)
+      ? (this.fillColor || "#2563eb")
+      : "none";
+
     const style = {
-      color: this.engine.settings.color,
-      size: this.engine.settings.size,
-      opacity: this.engine.settings.opacity,
-      fill: "none",
+      color: strokeC,
+      size: strokeW,
+      opacity: this.engine.settings.opacity ?? 1,
+      fill,
+      dashArray: this.getDashArray(),
       lineCap: "round",
       lineJoin: "round"
     };
@@ -667,31 +1020,40 @@ export class Shapes extends BaseTool {
     };
 
     if (this.shape === "rect") {
+      const geom = {
+        x: left,
+        y: top,
+        width,
+        height
+      };
+      if (this.cornerRadius > 0) {
+        geom.rx = Math.min(this.cornerRadius, width / 2, height / 2);
+        geom.ry = Math.min(this.cornerRadius, width / 2, height / 2);
+      }
       return {
         ...base,
         svgTag: "rect",
-        geometry: {
-          x: left,
-          y: top,
-          width,
-          height
-        }
+        geometry: geom
       };
     }
-
 
     // Square: equal width and height
     if (this.shape === "square") {
       const side = Math.max(width, height);
+      const geom = {
+        x: a.x <= b.x ? a.x : a.x - side,
+        y: a.y <= b.y ? a.y : a.y - side,
+        width: side,
+        height: side
+      };
+      if (this.cornerRadius > 0) {
+        geom.rx = Math.min(this.cornerRadius, side / 2);
+        geom.ry = Math.min(this.cornerRadius, side / 2);
+      }
       return {
         ...base,
         svgTag: "rect",
-        geometry: {
-          x: a.x <= b.x ? a.x : a.x - side,
-          y: a.y <= b.y ? a.y : a.y - side,
-          width: side,
-          height: side
-        }
+        geometry: geom
       };
     }
 
@@ -1002,6 +1364,7 @@ export class ToolManager {
 
   registerDefaults() {
     this.register("pen", new Pen(this.engine, this.camera));
+    this.register("calligraphy", new Calligraphy(this.engine, this.camera));
     this.register("pencil", new Pencil(this.engine, this.camera));
     this.register("marker", new Marker(this.engine, this.camera));
     this.register("eraser", new Eraser(this.engine, this.camera));
@@ -1029,6 +1392,8 @@ export class ToolManager {
       previous.destroy?.();
     }
 
+    this.engine.toolManager = this;
+    tool.toolManager = this;
     this.tools.set(name, tool);
 
     return true;
@@ -1076,7 +1441,12 @@ export class ToolManager {
 
     if (!tool) return false;
 
-    if (this.activeTool === tool) return true;
+    if (this.activeTool === tool) {
+      if (name === "eraser") {
+        tool.activate();
+      }
+      return true;
+    }
 
     this.activeTool?.deactivate();
 
@@ -1090,11 +1460,19 @@ export class ToolManager {
 
     tool.activate();
 
+    window.dispatchEvent(new CustomEvent("rasem:tool-changed", {
+      detail: { tool: name }
+    }));
+
     return true;
   }
 
   setTool(name) {
     return this.activate(name);
+  }
+
+  get(name) {
+    return this.getTool(name);
   }
 
   getTool(name) {

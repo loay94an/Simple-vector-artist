@@ -318,6 +318,8 @@ export class StrokeBuilder {
     );
 
     this.tool = settings.tool || "pen";
+    this.calligraphyAngle = settings.calligraphyAngle ?? 45;
+    this.brushStyle = settings.brushStyle || null;
 
     this.sensitivity = EngineUtils.clamp(
       EngineUtils.number(settings.sensitivity, 0.8),
@@ -444,7 +446,43 @@ export class StrokeBuilder {
     ];
 
     return outline.map((p, index) =>
-      `${index === 0 ? "M" : "L"} ${p.x} ${p.y}`
+      `${index === 0 ? "M" : "L"} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`
+    ).join(" ") + " Z";
+  }
+
+  getCalligraphyOutline() {
+    const points = this.getFilteredPoints();
+    if (!points.length) return "";
+    const angleRad = (this.calligraphyAngle || 45) * (Math.PI / 180);
+    const cosA = Math.cos(angleRad);
+    const sinA = Math.sin(angleRad);
+    const radius = Math.max(1, this.baseSize / 2);
+
+    const left = [];
+    const right = [];
+
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      const pressureMultiplier = this.pressureEnabled ? (0.35 + (p.pressure || 1) * 0.65) : 1;
+      const r = radius * pressureMultiplier;
+
+      left.push({
+        x: p.x + cosA * r,
+        y: p.y + sinA * r
+      });
+      right.push({
+        x: p.x - cosA * r,
+        y: p.y - sinA * r
+      });
+    }
+
+    const outline = [
+      ...left,
+      ...right.reverse()
+    ];
+
+    return outline.map((p, index) =>
+      `${index === 0 ? "M" : "L"} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`
     ).join(" ") + " Z";
   }
 
@@ -456,16 +494,26 @@ export class StrokeBuilder {
     const pressureEnabled =
       options.pressureEnabled ?? this.pressureEnabled;
 
-    const variableWidth =
+    const isCalligraphy = this.tool === "calligraphy" || this.brushStyle?.preset === "calligraphy";
+
+    const variableWidth = isCalligraphy || (
       pressureEnabled &&
       this.tool !== "marker" &&
-      this.tool !== "pencil";
+      this.tool !== "pencil"
+    );
 
-    const path = variableWidth
-      ? this.getVariableWidthOutline()
-      : this.getCenterPath();
+    let path = "";
+    if (isCalligraphy) {
+      path = this.getCalligraphyOutline();
+    } else if (variableWidth) {
+      path = this.getVariableWidthOutline();
+    } else {
+      path = this.getCenterPath();
+    }
 
     if (!path) return null;
+
+    const brushStyle = this.brushStyle || {};
 
     return {
       id: this.id,
@@ -476,15 +524,17 @@ export class StrokeBuilder {
 
       path,
 
-      renderMode: variableWidth ? "fill" : "stroke",
+      renderMode: (variableWidth || isCalligraphy) ? "fill" : "stroke",
 
       style: {
         color: this.color,
         size: this.baseSize,
         opacity: this.opacity,
-        fill: variableWidth ? this.color : "none",
-        lineCap: "round",
-        lineJoin: "round"
+        fill: (variableWidth || isCalligraphy) ? this.color : "none",
+        lineCap: brushStyle.lineCap || "round",
+        lineJoin: brushStyle.lineJoin || "round",
+        dashArray: brushStyle.dashArray || "",
+        customBrush: brushStyle.image || null
       }
     };
   }
@@ -574,42 +624,71 @@ export class HitTesting {
     return inside;
   }
 
+  static samplePointsFromPath(pathStr) {
+    if (typeof pathStr !== "string" || !pathStr) return [];
+    const points = [];
+    const matches = pathStr.match(/-?\d+(?:\.\d+)?/g);
+    if (matches && matches.length >= 2) {
+      for (let i = 0; i < matches.length - 1; i += 2) {
+        const x = Number(matches[i]);
+        const y = Number(matches[i + 1]);
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          points.push({ x, y });
+        }
+      }
+    }
+    return points;
+  }
+
   static getElementDistance(element, point) {
     if (!element || !EngineUtils.validPoint(point)) {
       return Infinity;
     }
 
-    const points = element.points;
+    const size = EngineUtils.number(element.style?.size, 3);
 
-    if (Array.isArray(points) && points.length) {
-      const distance = this.distanceToPolyline(point, points);
-
-      const size = EngineUtils.number(
-        element.style?.size,
-        1
-      );
-
+    // 1. Array of points (freehand drawing)
+    if (Array.isArray(element.points) && element.points.length > 0) {
+      const distance = this.distanceToPolyline(point, element.points);
       return Math.max(0, distance - size / 2);
     }
 
+    // 2. SVG Path string (curves, arrows, lines, complex strokes)
+    if (typeof element.path === "string" && element.path.trim().length > 0) {
+      const pathPoints = this.samplePointsFromPath(element.path);
+      if (pathPoints.length > 0) {
+        const distance = this.distanceToPolyline(point, pathPoints);
+        return Math.max(0, distance - size / 2);
+      }
+    }
+
+    // 3. Geometry attributes (lines, shapes, bounding boxes)
     const geometry = element.geometry || {};
 
-    if (element.type === "shape") {
-      const x = EngineUtils.number(geometry.x, 0);
-      const y = EngineUtils.number(geometry.y, 0);
-      const width = EngineUtils.number(geometry.width, 0);
-      const height = EngineUtils.number(geometry.height, 0);
-
-      if (
-        width > 0 &&
-        height > 0 &&
-        point.x >= x &&
-        point.x <= x + width &&
-        point.y >= y &&
-        point.y <= y + height
-      ) {
-        return 0;
+    // Line / Arrow segment geometry (x1, y1, x2, y2)
+    if (
+      geometry.x1 !== undefined && geometry.y1 !== undefined &&
+      geometry.x2 !== undefined && geometry.y2 !== undefined
+    ) {
+      const p1 = { x: Number(geometry.x1), y: Number(geometry.y1) };
+      const p2 = { x: Number(geometry.x2), y: Number(geometry.y2) };
+      if (EngineUtils.validPoint(p1) && EngineUtils.validPoint(p2)) {
+        const dist = this.distanceToSegment(point, p1, p2);
+        return Math.max(0, dist - size / 2);
       }
+    }
+
+    // Rect, Square, Image, Circle bounding box
+    const x = EngineUtils.number(geometry.x, 0);
+    const y = EngineUtils.number(geometry.y, 0);
+    const width = EngineUtils.number(geometry.width, 0);
+    const height = EngineUtils.number(geometry.height, 0);
+
+    if (width > 0 && height > 0) {
+      const closestX = EngineUtils.clamp(point.x, x, x + width);
+      const closestY = EngineUtils.clamp(point.y, y, y + height);
+      const dist = EngineUtils.distance(point, { x: closestX, y: closestY });
+      return Math.max(0, dist - size / 2);
     }
 
     return Infinity;
@@ -676,7 +755,9 @@ export class DrawingEngine {
       sensitivity: 0.8,
       minDistance: 0.08,
       smoothing: 0.35,
-      eraserSize: 12
+      eraserSize: 16,
+      eraserMode: "partial",
+      calligraphyAngle: 45
     };
 
     this.builder = new StrokeBuilder({
@@ -739,6 +820,18 @@ export class DrawingEngine {
       this.settings.tool = settings.tool;
     }
 
+    if (settings.eraserMode === "partial" || settings.eraserMode === "stroke") {
+      this.settings.eraserMode = settings.eraserMode;
+    }
+
+    if (Number.isFinite(settings.calligraphyAngle)) {
+      this.settings.calligraphyAngle = EngineUtils.clamp(
+        settings.calligraphyAngle,
+        0,
+        360
+      );
+    }
+
     if (
       typeof settings.color === "string" &&
       /^#[0-9a-f]{6}$/i.test(settings.color)
@@ -798,19 +891,19 @@ export class DrawingEngine {
       this.settings.pressureEnabled = settings.pressureEnabled;
     }
 
-
     if (settings.brushStyle && typeof settings.brushStyle === "object") {
       const cap = settings.brushStyle.lineCap;
       const dash = settings.brushStyle.dashArray;
+      const img = settings.brushStyle.image;
 
       this.brushStyle = {
+        preset: settings.brushStyle.preset || null,
         lineCap: ["round", "butt", "square"].includes(cap)
           ? cap : "round",
         dashArray: typeof dash === "string" &&
           /^[\d\s.,-]*$/.test(dash) ? dash : "",
-        image: typeof settings.brushStyle.image === "string" &&
-          /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(settings.brushStyle.image)
-          ? settings.brushStyle.image
+        image: typeof img === "string" && img.startsWith("data:image/")
+          ? img
           : null
       };
     }
@@ -878,6 +971,7 @@ export class DrawingEngine {
       opacity: this.settings.opacity,
       sensitivity: this.settings.sensitivity,
       pressureEnabled: this.settings.pressureEnabled,
+      calligraphyAngle: this.settings.calligraphyAngle,
       brushStyle: { ...this.brushStyle }
     });
 
@@ -1121,29 +1215,208 @@ export class DrawingEngine {
       return false;
     }
 
-    const result = HitTesting.hitTest(
-      layer.elements,
-      point,
-      this.getEraserTolerance()
-    );
+    const radius = this.getEraserTolerance();
 
-    if (!result || this.erasedIds.has(result.id)) {
-      return false;
+    // النمط الثاني: ممحاة الخط بالكامل (Stroke Eraser)
+    if (this.settings.eraserMode === "stroke") {
+      const result = HitTesting.hitTest(
+        layer.elements,
+        point,
+        radius
+      );
+
+      if (!result || this.erasedIds.has(result.id)) {
+        return false;
+      }
+
+      const index = layer.elements.findIndex(
+        element => element.id === result.id
+      );
+
+      if (index === -1) return false;
+
+      layer.elements.splice(index, 1);
+      this.erasedIds.add(result.id);
+      this.changed = true;
+      this.document.touch?.();
+      this.renderer.renderActiveLayer(layer);
+      return true;
     }
 
-    const index = layer.elements.findIndex(
-      element => element.id === result.id
-    );
 
-    if (index === -1) return false;
+    // Partial vector eraser: clip actual line segments against
+    // the eraser circle, including interpolated boundary points.
 
-    layer.elements.splice(index, 1);
+    let modified = false;
+    const elementsToRemove = [];
+    const elementsToAdd = [];
 
-    this.erasedIds.add(result.id);
+    for (let elIdx = 0; elIdx < layer.elements.length; elIdx++) {
+      const element = layer.elements[elIdx];
+
+      if (!element || element.visible === false) continue;
+
+      const dist = HitTesting.getElementDistance(element, point);
+      if (dist > radius) continue;
+
+      if (Array.isArray(element.points) && element.points.length > 0) {
+        const points = element.points;
+        const strokeRadius = radius +
+          EngineUtils.number(element.style?.size, 3) / 2;
+
+        if (points.length === 1) {
+          if (EngineUtils.distance(points[0], point) <= strokeRadius) {
+            elementsToRemove.push(elIdx);
+            modified = true;
+          }
+          continue;
+        }
+
+        const segments = [];
+        let current = [];
+        let touched = false;
+
+        const pushPoint = (target, p) => {
+          const last = target[target.length - 1];
+
+          if (
+            !last ||
+            Math.hypot(last.x - p.x, last.y - p.y) > 0.000001
+          ) {
+            target.push(p);
+          }
+        };
+
+        const flush = () => {
+          if (current.length >= 2) {
+            segments.push(current);
+          }
+          current = [];
+        };
+
+        for (let i = 1; i < points.length; i++) {
+          const p1 = points[i - 1];
+          const p2 = points[i];
+
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+
+          const fx = p1.x - point.x;
+          const fy = p1.y - point.y;
+
+          const A = dx * dx + dy * dy;
+
+          if (A === 0) {
+            if (Math.hypot(fx, fy) <= strokeRadius) {
+              touched = true;
+              flush();
+            } else {
+              pushPoint(current, p1);
+              pushPoint(current, p2);
+            }
+            continue;
+          }
+
+          const B = 2 * (fx * dx + fy * dy);
+          const C = fx * fx + fy * fy -
+            strokeRadius * strokeRadius;
+
+          const discriminant = B * B - 4 * A * C;
+
+          const cuts = [0, 1];
+
+          if (discriminant > 0) {
+            const root = Math.sqrt(discriminant);
+
+            const t1 = (-B - root) / (2 * A);
+            const t2 = (-B + root) / (2 * A);
+
+            if (t1 > 0 && t1 < 1) cuts.push(t1);
+            if (t2 > 0 && t2 < 1) cuts.push(t2);
+          }
+
+          cuts.sort((x, y) => x - y);
+
+          for (let j = 0; j < cuts.length - 1; j++) {
+            const t0 = cuts[j];
+            const t1 = cuts[j + 1];
+            const mid = (t0 + t1) / 2;
+
+            const mx = p1.x + dx * mid;
+            const my = p1.y + dy * mid;
+
+            const inside =
+              Math.hypot(mx - point.x, my - point.y) <
+              strokeRadius;
+
+            const from = {
+              ...p1,
+              x: p1.x + dx * t0,
+              y: p1.y + dy * t0
+            };
+
+            const to = {
+              ...p1,
+              x: p1.x + dx * t1,
+              y: p1.y + dy * t1
+            };
+
+            if (inside) {
+              touched = true;
+              flush();
+            } else {
+              if (
+                current.length &&
+                Math.hypot(
+                  current[current.length - 1].x - from.x,
+                  current[current.length - 1].y - from.y
+                ) > 0.000001
+              ) {
+                flush();
+              }
+
+              pushPoint(current, from);
+              pushPoint(current, to);
+            }
+          }
+        }
+
+        flush();
+
+        if (!touched) continue;
+
+        elementsToRemove.push(elIdx);
+
+        for (const segment of segments) {
+          const newElement = EngineUtils.clone(element);
+
+          newElement.id = EngineUtils.createId("stroke");
+          newElement.points = segment;
+          newElement.path = this.buildPath(segment);
+
+          elementsToAdd.push(newElement);
+        }
+
+        modified = true;
+      } else {
+        // Shapes and elements without vector points.
+        elementsToRemove.push(elIdx);
+        modified = true;
+      }
+    }
+
+    if (!modified) return false;
+
+    for (let i = elementsToRemove.length - 1; i >= 0; i--) {
+      layer.elements.splice(elementsToRemove[i], 1);
+    }
+
+    for (const newElement of elementsToAdd) {
+      layer.elements.push(newElement);
+    }
+
     this.changed = true;
-
     this.document.touch?.();
-
     this.renderer.renderActiveLayer(layer);
 
     return true;

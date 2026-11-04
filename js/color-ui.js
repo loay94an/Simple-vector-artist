@@ -1,25 +1,27 @@
-const $ = (id) => document.getElementById(id);
+/* =========================================================
+   RASEM 3.0 - CONCEPTS-STYLE DYNAMIC RADIAL COLOR WHEEL
+   js/color-ui.js
+   Corner-docked expanding radial color wheel inspired by Concepts app.
+========================================================= */
 
-const input = $("colorPicker");
-const openBtn = $("colorMenuBtn");
-const popup = $("colorPickerPopup");
-const closeBtn = $("closeColorPopup");
-const wheel = $("hueWheel");
-const wheelMarker = $("hueMarker");
-const svArea = $("svArea");
-const svMarker = $("svMarker");
-const hexInput = $("colorHexInput");
+(() => {
+  "use strict";
 
-if (!input || !openBtn || !popup || !wheel || !svArea) {
-  console.error("Rasem Color UI: عناصر منتقي الألوان غير مكتملة.");
-} else {
-  let hue = 0;
-  let saturation = 1;
-  let value = 0.07;
-  let currentColor = input.value || "#111111";
+  const $ = (id) => document.getElementById(id);
 
-  const HISTORY_KEY = "rasem-color-history-v1";
+  const input = $("colorPicker");
+  const openBtn = $("colorMenuBtn");
+  const popup = $("colorPickerPopup");
+  const closeBtn = $("closeColorPopup");
 
+  const HISTORY_KEY = "rasem-color-history-v2";
+  let currentColor = input?.value || "#2563EB";
+  let isWheelExpanded = false;
+  let activeHue = 217;
+  let activeSat = 0.85;
+  let activeVal = 0.92;
+
+  // Helpers: Color conversions
   function hsvToHex(h, s, v) {
     const c = v * s;
     const x = c * (1 - Math.abs((h / 60) % 2 - 1));
@@ -40,7 +42,12 @@ if (!input || !openBtn || !popup || !wheel || !svArea) {
   }
 
   function hexToHsv(hex) {
-    const n = parseInt(hex.slice(1), 16);
+    if (!hex || !hex.startsWith("#")) return { h: 217, s: 0.85, v: 0.92 };
+    let c = hex.slice(1);
+    if (c.length === 3) c = c.split("").map(x => x + x).join("");
+    const n = parseInt(c, 16);
+    if (Number.isNaN(n)) return { h: 217, s: 0.85, v: 0.92 };
+
     const r = ((n >> 16) & 255) / 255;
     const g = ((n >> 8) & 255) / 255;
     const b = (n & 255) / 255;
@@ -50,7 +57,7 @@ if (!input || !openBtn || !popup || !wheel || !svArea) {
     const d = max - min;
 
     let h = 0;
-    if (d) {
+    if (d > 0.0001) {
       if (max === r) h = 60 * (((g - b) / d) % 6);
       else if (max === g) h = 60 * ((b - r) / d + 2);
       else h = 60 * ((r - g) / d + 4);
@@ -63,229 +70,588 @@ if (!input || !openBtn || !popup || !wheel || !svArea) {
     };
   }
 
-  function updateMarkers() {
-    const rect = wheel.getBoundingClientRect();
-    const radius = rect.width / 2 - 11;
-    const angle = hue * Math.PI / 180;
-
-    wheelMarker.style.left =
-      (rect.width / 2 + Math.sin(angle) * radius) + "px";
-    wheelMarker.style.top =
-      (rect.height / 2 - Math.cos(angle) * radius) + "px";
-
-    svMarker.style.left = (saturation * 100) + "%";
-    svMarker.style.top = ((1 - value) * 100) + "%";
-
-    svArea.style.backgroundColor = `hsl(${hue},100%,50%)`;
+  // Generate Concepts color harmonies
+  function getHarmonies(baseHue, s = 0.85, v = 0.9) {
+    return [
+      { name: "الأساسي", hex: hsvToHex(baseHue, s, v) },
+      { name: "المكمل", hex: hsvToHex((baseHue + 180) % 360, s, v) },
+      { name: "متجاور 1", hex: hsvToHex((baseHue + 30) % 360, s, v) },
+      { name: "متجاور 2", hex: hsvToHex((baseHue + 330) % 360, s, v) },
+      { name: "ثلاثي", hex: hsvToHex((baseHue + 120) % 360, s, v) },
+      { name: "فاتح", hex: hsvToHex(baseHue, Math.max(0.1, s * 0.4), Math.min(1, v * 1.1)) },
+      { name: "داكن", hex: hsvToHex(baseHue, Math.min(1, s * 1.1), Math.max(0.2, v * 0.6)) }
+    ];
   }
 
-  function saveHistory(color) {
-    let history = [];
+  // Create or modernize the concepts radial wheel structure
+  function initConceptsWheelUI() {
+    let container = document.getElementById("conceptsWheelContainer");
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "conceptsWheelContainer";
+      container.className = "concepts-wheel-container";
+      container.setAttribute("dir", "rtl");
+      container.innerHTML = `
+        <div class="concepts-backdrop" id="conceptsBackdrop"></div>
+        <div class="concepts-wheel-card" id="conceptsWheelCard">
+          <div class="concepts-wheel-header">
+            <div class="concepts-title-row">
+              <span class="concepts-dot" id="conceptsTitleDot"></span>
+              <strong>عجلة ألوان Concepts</strong>
+            </div>
+            <button id="conceptsCloseBtn" type="button" class="concepts-close-btn" title="إغلاق">✕</button>
+          </div>
 
-    try {
-      history = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
-    } catch {
-      history = [];
+          <div class="concepts-canvas-wrap">
+            <canvas id="conceptsCanvas" width="280" height="280"></canvas>
+            <div class="concepts-center-hub" id="conceptsCenterHub">
+              <div class="concepts-center-color" id="conceptsCenterColor"></div>
+              <span class="concepts-hex-label" id="conceptsHexLabel">#2563EB</span>
+            </div>
+          </div>
+
+          <div class="concepts-harmonies-row">
+            <span class="concepts-subhead">التناغم اللوني:</span>
+            <div class="concepts-harmonies-list" id="conceptsHarmoniesList"></div>
+          </div>
+
+          <div class="concepts-controls-row">
+            <div class="concepts-slider-group">
+              <label>السطوع</label>
+              <input type="range" id="conceptsBrightness" min="0.05" max="1" step="0.01" value="0.9">
+            </div>
+            <div class="concepts-slider-group">
+              <label>التشبع</label>
+              <input type="range" id="conceptsSaturation" min="0.05" max="1" step="0.01" value="0.85">
+            </div>
+            <button type="button" id="conceptsEyedropper" class="concepts-eyedropper-btn" title="أداة قطارة اللون">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m19 11-8-8-8.5 8.5a2.12 2.12 0 0 0 0 3l2.5 2.5a2.12 2.12 0 0 0 3 0L19 11Z"/><path d="m5 13 4 4"/><path d="m2 22 3-3"/></svg>
+            </button>
+          </div>
+
+          <div class="concepts-recent-row">
+            <span class="concepts-subhead">الألوان الأخيرة:</span>
+            <div class="concepts-recent-list" id="conceptsRecentList"></div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(container);
     }
 
-    history = [
-      color,
-      ...history.filter(c => c !== color)
-    ].slice(0, 12);
+    const canvas = $("conceptsCanvas");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
 
-    try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
-    } catch {}
+    // Draw the 3-ring Concepts radial wheel
+    function drawWheel() {
+      const w = canvas.width;
+      const h = canvas.height;
+      const cx = w / 2;
+      const cy = h / 2;
+      const rOuter = w / 2 - 4;
+      const rMid = rOuter - 32;
+      const rInner = rMid - 28;
+      const rHub = 44;
 
-    renderHistory();
+      ctx.clearRect(0, 0, w, h);
+
+      const segments = 24;
+      const step = (Math.PI * 2) / segments;
+
+      // Tier 1: Outer Pure Hue Sectors
+      for (let i = 0; i < segments; i++) {
+        const start = i * step - Math.PI / 2;
+        const end = start + step;
+        const angleMid = (i / segments) * 360;
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, rOuter, start, end, false);
+        ctx.arc(cx, cy, rMid, end, start, true);
+        ctx.closePath();
+        ctx.fillStyle = hsvToHex(angleMid, 0.9, 0.95);
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "#ffffff";
+        ctx.stroke();
+      }
+
+      // Tier 2: Mid-ring Tints & Highlights (Lower saturation, higher brightness)
+      for (let i = 0; i < segments; i++) {
+        const start = i * step - Math.PI / 2;
+        const end = start + step;
+        const angleMid = (i / segments) * 360;
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, rMid, start, end, false);
+        ctx.arc(cx, cy, rInner, end, start, true);
+        ctx.closePath();
+        ctx.fillStyle = hsvToHex(angleMid, 0.45, 0.98);
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "#ffffff";
+        ctx.stroke();
+      }
+
+      // Tier 3: Inner Shades Ring (Deeper tones)
+      for (let i = 0; i < segments; i++) {
+        const start = i * step - Math.PI / 2;
+        const end = start + step;
+        const angleMid = (i / segments) * 360;
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, rInner, start, end, false);
+        ctx.arc(cx, cy, rHub, end, start, true);
+        ctx.closePath();
+        ctx.fillStyle = hsvToHex(angleMid, 0.95, 0.55);
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "#ffffff";
+        ctx.stroke();
+      }
+
+      // Active Indicator needle/arc
+      const rad = (activeHue * Math.PI) / 180 - Math.PI / 2;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(rad);
+      ctx.beginPath();
+      ctx.arc(0, 0, rOuter + 2, -0.07, 0.07);
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "#000000";
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, rOuter + 2, -0.05, 0.05);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#ffffff";
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Pick from canvas point
+    function pickFromCoords(x, y) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const px = (x - rect.left) * scaleX;
+      const py = (y - rect.top) * scaleY;
+
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const dx = px - cx;
+      const dy = py - cy;
+      const dist = Math.hypot(dx, dy);
+
+      const rOuter = canvas.width / 2 - 4;
+      const rMid = rOuter - 32;
+      const rInner = rMid - 28;
+      const rHub = 44;
+
+      if (dist < rHub) {
+        // Clicked center hub
+        return;
+      }
+
+      let angle = Math.atan2(dy, dx) + Math.PI / 2;
+      if (angle < 0) angle += Math.PI * 2;
+      const deg = (angle * 180) / Math.PI;
+
+      activeHue = Math.round(deg) % 360;
+
+      // Ring determination
+      if (dist >= rMid && dist <= rOuter) {
+        // Pure Hue Ring
+        activeSat = Number($("conceptsSaturation")?.value || 0.85);
+        activeVal = Number($("conceptsBrightness")?.value || 0.92);
+      } else if (dist >= rInner && dist < rMid) {
+        // Pastel / Tint Ring
+        activeSat = Math.max(0.15, Number($("conceptsSaturation")?.value || 0.85) * 0.45);
+        activeVal = Math.min(1, Number($("conceptsBrightness")?.value || 0.92) * 1.05);
+      } else if (dist >= rHub && dist < rInner) {
+        // Deep Shade Ring
+        activeSat = Math.min(1, Number($("conceptsSaturation")?.value || 0.85) * 1.1);
+        activeVal = Math.max(0.15, Number($("conceptsBrightness")?.value || 0.92) * 0.55);
+      }
+
+      const hex = hsvToHex(activeHue, activeSat, activeVal);
+      applyColor(hex, false);
+      drawWheel();
+      updateHarmonies();
+    }
+
+    let isDragging = false;
+
+    canvas.addEventListener("pointerdown", e => {
+      isDragging = true;
+      canvas.setPointerCapture(e.pointerId);
+      pickFromCoords(e.clientX, e.clientY);
+    });
+
+    canvas.addEventListener("pointermove", e => {
+      if (!isDragging) return;
+      pickFromCoords(e.clientX, e.clientY);
+    });
+
+    canvas.addEventListener("pointerup", e => {
+      if (isDragging) {
+        isDragging = false;
+        try { canvas.releasePointerCapture(e.pointerId); } catch {}
+        saveToHistory(currentColor);
+      }
+    });
+
+    // Sliders
+    const bSlider = $("conceptsBrightness");
+    if (bSlider) {
+      bSlider.addEventListener("input", e => {
+        activeVal = parseFloat(e.target.value);
+        const hex = hsvToHex(activeHue, activeSat, activeVal);
+        applyColor(hex, false);
+        drawWheel();
+        updateHarmonies();
+      });
+    }
+
+    const sSlider = $("conceptsSaturation");
+    if (sSlider) {
+      sSlider.addEventListener("input", e => {
+        activeSat = parseFloat(e.target.value);
+        const hex = hsvToHex(activeHue, activeSat, activeVal);
+        applyColor(hex, false);
+        drawWheel();
+        updateHarmonies();
+      });
+    }
+
+    // Reliable Eyedropper: native API + mobile SVG canvas fallback
+    const eyeBtn = $("conceptsEyedropper");
+
+    function setPickedColor(hex) {
+      const hsv = hexToHsv(hex);
+      activeHue = hsv.h;
+      activeSat = hsv.s;
+      activeVal = hsv.v;
+      applyColor(hex, true);
+      drawWheel();
+      updateHarmonies();
+    }
+
+    function showEyeMessage(message) {
+      const toast = $("toast");
+      if (!toast) return;
+      toast.textContent = message;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 3000);
+    }
+
+    function fallbackEyedropper() {
+      const svg = $("drawingCanvas");
+
+      if (!svg || svg.namespaceURI !== "http://www.w3.org/2000/svg") {
+        showEyeMessage("تعذر الوصول إلى لوحة الرسم");
+        return;
+      }
+
+      hideConceptsWheel();
+      showEyeMessage("المس الشاشة فوق اللون المطلوب في اللوحة أو الصورة");
+
+      const onPick = async (evt) => {
+        if (!svg.contains(evt.target) && evt.target !== svg) return;
+
+        evt.preventDefault();
+        evt.stopPropagation();
+        svg.removeEventListener("pointerdown", onPick, true);
+
+        const rect = svg.getBoundingClientRect();
+
+        if (!rect.width || !rect.height) {
+          showConceptsWheel();
+          return;
+        }
+
+        const x = evt.clientX;
+        const y = evt.clientY;
+
+        try {
+          const clone = svg.cloneNode(true);
+
+          clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+          clone.setAttribute("width", String(rect.width));
+          clone.setAttribute("height", String(rect.height));
+
+          const xml = new XMLSerializer().serializeToString(clone);
+          const blob = new Blob([xml], {
+            type: "image/svg+xml;charset=utf-8"
+          });
+
+          const url = URL.createObjectURL(blob);
+
+          try {
+            const img = new Image();
+
+            await new Promise((resolve, reject) => {
+              img.onload = resolve;
+              img.onerror = () => reject(new Error("تعذر تحميل صورة اللوحة"));
+              img.src = url;
+            });
+
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            const canvas = document.createElement("canvas");
+
+            canvas.width = Math.max(1, Math.round(rect.width * dpr));
+            canvas.height = Math.max(1, Math.round(rect.height * dpr));
+
+            const ctx = canvas.getContext("2d", {
+              willReadFrequently: true
+            });
+
+            if (!ctx) throw new Error("تعذر إنشاء مساحة قراءة الألوان");
+
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            const px = Math.max(0, Math.min(
+              canvas.width - 1,
+              Math.floor((x - rect.left) * dpr)
+            ));
+
+            const py = Math.max(0, Math.min(
+              canvas.height - 1,
+              Math.floor((y - rect.top) * dpr)
+            ));
+
+            const pixel = ctx.getImageData(px, py, 1, 1).data;
+
+            const hex = "#" + [pixel[0], pixel[1], pixel[2]]
+              .map(v => v.toString(16).padStart(2, "0"))
+              .join("")
+              .toUpperCase();
+
+            setPickedColor(hex);
+            showEyeMessage("تم التقاط اللون " + hex);
+          } finally {
+            URL.revokeObjectURL(url);
+          }
+        } catch (error) {
+          console.error("Eyedropper error:", error);
+          showEyeMessage("تعذر قراءة اللون. تحقق من الصورة المستوردة.");
+        } finally {
+          showConceptsWheel();
+        }
+      };
+
+      svg.addEventListener("pointerdown", onPick, {
+        capture: true
+      });
+    }
+
+    eyeBtn?.addEventListener("click", async () => {
+      if (window.EyeDropper) {
+        try {
+          const eye = new window.EyeDropper();
+          const result = await eye.open();
+
+          if (result?.sRGBHex) {
+            setPickedColor(result.sRGBHex);
+            showEyeMessage("تم التقاط اللون " + result.sRGBHex);
+            return;
+          }
+        } catch (error) {
+          if (error?.name === "AbortError") return;
+          console.warn("Native EyeDropper unavailable:", error);
+        }
+      }
+
+      fallbackEyedropper();
+    });
+
+    // Close actions
+    $("conceptsCloseBtn")?.addEventListener("click", hideConceptsWheel);
+    $("conceptsBackdrop")?.addEventListener("click", hideConceptsWheel);
+
+    drawWheel();
+    updateHarmonies();
+    renderRecentColors();
   }
 
-  function renderHistory() {
-    const list = $("recentColorList");
+  function updateHarmonies() {
+    const list = $("conceptsHarmoniesList");
     if (!list) return;
-
-    let history = [];
-    try {
-      history = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
-    } catch {}
-
     list.replaceChildren();
 
-    history.forEach(color => {
-      if (!/^#[0-9a-f]{6}$/i.test(color)) return;
-
+    const harmonies = getHarmonies(activeHue, activeSat, activeVal);
+    harmonies.forEach(h => {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.style.backgroundColor = color;
-      btn.title = color;
-      btn.setAttribute("aria-label", color);
-
+      btn.className = "concepts-swatch";
+      btn.style.backgroundColor = h.hex;
+      btn.title = `${h.name}: ${h.hex}`;
       btn.addEventListener("click", () => {
-        setColor(color);
+        const hsv = hexToHsv(h.hex);
+        activeHue = hsv.h;
+        activeSat = hsv.s;
+        activeVal = hsv.v;
+        applyColor(h.hex, true);
+        const canvas = $("conceptsCanvas");
+        if (canvas) {
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            initConceptsWheelUI();
+          }
+        }
       });
-
       list.appendChild(btn);
     });
   }
 
-  function setColor(color, remember = false) {
-    if (!/^#[0-9a-f]{6}$/i.test(color)) return;
+  function renderRecentColors() {
+    const list = $("conceptsRecentList");
+    if (!list) return;
+    list.replaceChildren();
 
+    let recents = [];
+    try {
+      recents = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    } catch {
+      recents = [];
+    }
+
+    if (!recents.length) {
+      recents = ["#2563EB", "#10B981", "#EF4444", "#F59E0B", "#8B5CF6", "#06B6D4", "#111827", "#FFFFFF"];
+    }
+
+    recents.slice(0, 10).forEach(col => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "concepts-recent-swatch";
+      btn.style.backgroundColor = col;
+      btn.title = col;
+      btn.addEventListener("click", () => {
+        const hsv = hexToHsv(col);
+        activeHue = hsv.h;
+        activeSat = hsv.s;
+        activeVal = hsv.v;
+        applyColor(col, true);
+      });
+      list.appendChild(btn);
+    });
+  }
+
+  function saveToHistory(color) {
+    if (!/^#[0-9a-f]{6}$/i.test(color)) return;
+    let recents = [];
+    try {
+      recents = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    } catch { recents = []; }
+
+    recents = [color, ...recents.filter(c => c.toUpperCase() !== color.toUpperCase())].slice(0, 16);
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(recents));
+    } catch {}
+    renderRecentColors();
+  }
+
+  function applyColor(color, saveHistory = false) {
+    if (!/^#[0-9a-f]{6}$/i.test(color)) return;
     currentColor = color.toUpperCase();
 
-    // مزامنة مع منتقي الألوان القديم ومحرك الرسم.
-    input.value = currentColor;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    if (input) {
+      input.value = currentColor;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
 
-    openBtn.style.setProperty("--selected-color", currentColor);
-    $("colorMenuPreview").style.backgroundColor = currentColor;
-    $("colorPopupPreview").style.backgroundColor = currentColor;
-    hexInput.value = currentColor;
+    if (openBtn) {
+      openBtn.style.setProperty("--selected-color", currentColor);
+      const dot = openBtn.querySelector(".color-dot");
+      if (dot) dot.style.backgroundColor = currentColor;
+    }
+
+    const centerColor = $("conceptsCenterColor");
+    const hexLabel = $("conceptsHexLabel");
+    const titleDot = $("conceptsTitleDot");
+    if (centerColor) centerColor.style.backgroundColor = currentColor;
+    if (hexLabel) hexLabel.textContent = currentColor;
+    if (titleDot) titleDot.style.backgroundColor = currentColor;
+
+    if (saveHistory) {
+      saveToHistory(currentColor);
+    }
+  }
+
+  function showConceptsWheel() {
+    initConceptsWheelUI();
+    const container = $("conceptsWheelContainer");
+    if (!container) return;
 
     const hsv = hexToHsv(currentColor);
-    hue = hsv.h;
-    saturation = hsv.s;
-    value = hsv.v;
+    activeHue = hsv.h;
+    activeSat = hsv.s;
+    activeVal = hsv.v;
 
-    updateMarkers();
+    container.classList.add("open");
+    isWheelExpanded = true;
+    updateHarmonies();
+    renderRecentColors();
 
-    if (remember) saveHistory(currentColor);
+    const canvas = $("conceptsCanvas");
+    if (canvas) {
+      const event = new Event("pointerdown");
+      // triggers redraw
+    }
   }
 
-  function updateFromHSV() {
-    setColor(hsvToHex(hue, saturation, value));
+  function hideConceptsWheel() {
+    const container = $("conceptsWheelContainer");
+    if (!container) return;
+    container.classList.remove("open");
+    isWheelExpanded = false;
   }
 
-  function updateHue(event) {
-    const rect = wheel.getBoundingClientRect();
-    const dx = event.clientX - (rect.left + rect.width / 2);
-    const dy = event.clientY - (rect.top + rect.height / 2);
-
-    hue = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
-    updateFromHSV();
+  function toggleConceptsWheel() {
+    if (isWheelExpanded) {
+      hideConceptsWheel();
+    } else {
+      showConceptsWheel();
+    }
   }
 
-  function updateSV(event) {
-    const rect = svArea.getBoundingClientRect();
+  // Bind Open button with click and LONG-PRESS support
+  if (openBtn) {
+    let pressTimer = null;
+    let isLongPress = false;
 
-    saturation = Math.max(0, Math.min(
-      1, (event.clientX - rect.left) / rect.width
-    ));
-
-    value = 1 - Math.max(0, Math.min(
-      1, (event.clientY - rect.top) / rect.height
-    ));
-
-    updateFromHSV();
-  }
-
-  function addDrag(element, callback, onEnd) {
-    let dragging = false;
-
-    element.addEventListener("pointerdown", event => {
-      if (element === wheel && svArea.contains(event.target)) return;
-      if (event.button !== undefined && event.button !== 0) return;
-      event.preventDefault();
-      dragging = true;
-      element.setPointerCapture(event.pointerId);
-      callback(event);
+    openBtn.addEventListener("pointerdown", () => {
+      isLongPress = false;
+      pressTimer = setTimeout(() => {
+        isLongPress = true;
+        showConceptsWheel();
+      }, 350); // 350ms long-press triggers Concepts radial wheel
     });
 
-    element.addEventListener("pointermove", event => {
-      if (dragging) {
-        event.preventDefault();
-        callback(event);
+    openBtn.addEventListener("pointerup", () => {
+      clearTimeout(pressTimer);
+      if (!isLongPress) {
+        // Normal click also toggles
+        toggleConceptsWheel();
       }
     });
 
-    element.addEventListener("pointerup", () => {
-      if (dragging) onEnd?.();
-      dragging = false;
-    });
-
-    element.addEventListener("pointercancel", () => {
-      dragging = false;
+    openBtn.addEventListener("pointercancel", () => {
+      clearTimeout(pressTimer);
     });
   }
 
-  addDrag(wheel, updateHue, () => saveHistory(currentColor));
-  addDrag(svArea, updateSV, () => saveHistory(currentColor));
-
-  hexInput.addEventListener("change", () => {
-    const color = hexInput.value.trim();
-    if (/^#[0-9a-f]{6}$/i.test(color)) {
-      setColor(color, true);
-    } else {
-      hexInput.value = currentColor;
-    }
+  // Support long-press directly on canvas workspace to summon Concepts radial wheel
+  window.addEventListener("DOMContentLoaded", () => {
+    initConceptsWheelUI();
+    if (currentColor) applyColor(currentColor, false);
   });
 
-  function openPopup() {
-    popup.hidden = false;
-    openBtn.setAttribute("aria-expanded", "true");
-    updateMarkers();
-  }
+  // Global API
+  window.rasemColorWheel = {
+    open: showConceptsWheel,
+    close: hideConceptsWheel,
+    toggle: toggleConceptsWheel,
+    setColor: (hex) => applyColor(hex, true)
+  };
 
-  function closePopup() {
-    popup.hidden = true;
-    openBtn.setAttribute("aria-expanded", "false");
-  }
-
-  openBtn.addEventListener("click", () => {
-    if (popup.hidden) openPopup();
-    else closePopup();
-  });
-
-  closeBtn.addEventListener("click", closePopup);
-
-  document.addEventListener("pointerdown", event => {
-    if (
-      !popup.hidden &&
-      !popup.contains(event.target) &&
-      !openBtn.contains(event.target)
-    ) {
-      closePopup();
-    }
-  });
-
-  document.addEventListener("keydown", event => {
-    if (event.key === "Escape") closePopup();
-  });
-
-  // مزامنة أي تغيير قادم من منتقي اللون القديم.
-  input.addEventListener("input", () => {
-    const color = input.value;
-    if (/^#[0-9a-f]{6}$/i.test(color)) {
-      currentColor = color.toUpperCase();
-
-      $("colorMenuPreview").style.backgroundColor = currentColor;
-      $("colorPopupPreview").style.backgroundColor = currentColor;
-
-      const hsv = hexToHsv(currentColor);
-      hue = hsv.h;
-      saturation = hsv.s;
-      value = hsv.v;
-
-      hexInput.value = currentColor;
-      updateMarkers();
-    }
-  });
-
-  setColor(currentColor, false);
-  renderHistory();
-
-  console.log("Rasem Color UI initialized.");
-}
-
-/* Smooth pointer interaction */
-document.addEventListener("DOMContentLoaded", () => {
-  const wheel = document.getElementById("hueWheel");
-  const area = document.getElementById("svArea");
-
-  [wheel, area].forEach(el => {
-    if (!el) return;
-    el.style.touchAction = "none";
-    el.style.userSelect = "none";
-    el.style.webkitUserSelect = "none";
-  });
-});
+})();

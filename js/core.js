@@ -31,13 +31,16 @@ const ALLOWED_TAGS = new Set([
   "circle",
   "ellipse",
   "polygon",
-  "polyline"
+  "polyline",
+  "image",
+  "g"
 ]);
 
 const GEOMETRY_ATTRIBUTES = new Set([
   "d", "x", "y", "x1", "y1", "x2", "y2",
   "cx", "cy", "r", "rx", "ry",
-  "width", "height", "points"
+  "width", "height", "points",
+  "href", "xlink:href", "preserveAspectRatio"
 ]);
 
 /* =========================================================
@@ -650,6 +653,9 @@ export class Scene {
       if (
         attribute !== "d" &&
         attribute !== "points" &&
+        attribute !== "href" &&
+        attribute !== "xlink:href" &&
+        attribute !== "preserveAspectRatio" &&
         !Number.isFinite(Number(value))
       ) {
         continue;
@@ -657,7 +663,10 @@ export class Scene {
 
       if (
         attribute === "d" ||
-        attribute === "points"
+        attribute === "points" ||
+        attribute === "href" ||
+        attribute === "xlink:href" ||
+        attribute === "preserveAspectRatio"
       ) {
         if (typeof value !== "string") continue;
       }
@@ -696,7 +705,7 @@ export class Scene {
 
     if (
       typeof customBrush === "string" &&
-      /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(customBrush)
+      customBrush.startsWith("data:image/")
     ) {
       const svg = node.ownerSVGElement;
 
@@ -714,29 +723,41 @@ export class Scene {
 
         let pattern = defs.querySelector("#" + id);
 
+        const patternDim = String(Math.max(12, Math.round(size * 2)));
+
         if (!pattern) {
           pattern = document.createElementNS(SVG_NS, "pattern");
           pattern.id = id;
           pattern.setAttribute("patternUnits", "userSpaceOnUse");
-          pattern.setAttribute("width", "32");
-          pattern.setAttribute("height", "32");
+          pattern.setAttribute("width", patternDim);
+          pattern.setAttribute("height", patternDim);
 
           const image = document.createElementNS(SVG_NS, "image");
-          image.setAttribute("width", "32");
-          image.setAttribute("height", "32");
+          image.setAttribute("width", patternDim);
+          image.setAttribute("height", patternDim);
           image.setAttribute("preserveAspectRatio", "none");
 
           pattern.appendChild(image);
           defs.appendChild(pattern);
+        } else {
+          pattern.setAttribute("width", patternDim);
+          pattern.setAttribute("height", patternDim);
+          const existingImg = pattern.querySelector("image");
+          if (existingImg) {
+            existingImg.setAttribute("width", patternDim);
+            existingImg.setAttribute("height", patternDim);
+          }
         }
 
         const image = pattern.querySelector("image");
-        image.setAttribute("href", customBrush);
-        image.setAttributeNS(
-          "http://www.w3.org/1999/xlink",
-          "xlink:href",
-          customBrush
-        );
+        if (image) {
+          image.setAttribute("href", customBrush);
+          image.setAttributeNS(
+            "http://www.w3.org/1999/xlink",
+            "xlink:href",
+            customBrush
+          );
+        }
 
         node.setAttribute("stroke", "url(#" + id + ")");
       }

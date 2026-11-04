@@ -1,3 +1,8 @@
+/* =========================================================
+   RASEM 3.0 - TOOL SETTINGS POPUP MODULE
+   js/tool-settings-popup.js
+   Supports Pen, Calligraphy, Pencil, Marker, Eraser, and Custom PNG Brushes.
+========================================================= */
 
 (() => {
   "use strict";
@@ -6,13 +11,16 @@
   const title = document.getElementById("toolSettingsTitle");
   const close = document.getElementById("closeToolSettings");
   const toolbar = document.getElementById("toolbar");
+  const backdrop = document.getElementById("toolSettingsBackdrop");
 
   if (!popup || !toolbar || !close) return;
 
   const names = {
-    pen: "إعدادات القلم",
-    pencil: "إعدادات الرصاص",
-    marker: "إعدادات الماركر"
+    pen: "إعدادات قلم الحبر",
+    calligraphy: "إعدادات قلم الخط العربي",
+    pencil: "إعدادات قلم الرصاص",
+    marker: "إعدادات ماركر التظليل",
+    eraser: "إعدادات الممحاة الذكية"
   };
 
   const ids = {
@@ -24,26 +32,38 @@
 
   const presets = {
     round: { lineCap: "round", dashArray: "" },
+    calligraphy: { lineCap: "round", dashArray: "", preset: "calligraphy" },
+    chisel: { lineCap: "square", dashArray: "" },
     square: { lineCap: "square", dashArray: "" },
     dash: { lineCap: "round", dashArray: "8 5" },
-    soft: { lineCap: "round", dashArray: "" }
+    soft: { lineCap: "round", dashArray: "" },
+    spray: { lineCap: "round", dashArray: "1 4", preset: "spray" },
+    watercolor: { lineCap: "round", dashArray: "", preset: "watercolor" },
+    chalk: { lineCap: "square", dashArray: "4 3", preset: "chalk" },
+    ink: { lineCap: "round", dashArray: "", preset: "ink" },
+    highlighter: { lineCap: "square", dashArray: "", preset: "highlighter" },
+    custom: { lineCap: "round", dashArray: "" }
   };
 
   const labels = {
-    round: "دائرية",
+    round: "دائرية ناعمة",
+    calligraphy: "خط عربي مشطوف",
+    chisel: "عريضة هندسية",
     square: "مربعة",
     dash: "متقطعة",
-    soft: "ناعمة"
+    soft: "فرشاة ناعمة",
+    spray: "رش / بخاخ",
+    watercolor: "ألوان مائية",
+    chalk: "طباشيري / جاف",
+    ink: "حبر هندي G-Pen",
+    highlighter: "قلم تظليل",
+    custom: "فرشاة PNG مخصصة"
   };
 
-  const STORAGE = "rasem-per-tool-settings-v1";
+  const STORAGE = "rasem-per-tool-settings-v2";
 
   let settings = {};
   let activeTool = "pen";
-  let timer = null;
-  let pointer = null;
-  let startX = 0;
-  let startY = 0;
   let opened = false;
 
   try {
@@ -65,7 +85,10 @@
         : Number(el.value);
     }
 
-    result.brush = settings[activeTool]?.brush || "round";
+    result.brush = settings[activeTool]?.brush || (activeTool === "calligraphy" ? "calligraphy" : "round");
+    result.customBrush = settings[activeTool]?.customBrush || null;
+    result.eraserMode = settings[activeTool]?.eraserMode || "partial";
+    result.calligraphyAngle = Number(document.getElementById("calligraphyAngle")?.value || 45);
 
     return result;
   }
@@ -82,14 +105,38 @@
 
   function apply() {
     const current = settings[activeTool] || {};
-    const brush = current.brush || "round";
-
+    const brush = current.brush || (activeTool === "calligraphy" ? "calligraphy" : "round");
     const style = presets[brush] || presets.round;
+
+    const engine = window.rasem?.engine;
+    if (engine) {
+      if (activeTool === "eraser") {
+        engine.setSettings({
+          eraserSize: current.size || 16,
+          eraserMode: current.eraserMode || "partial"
+        });
+      } else {
+        engine.setSettings({
+          size: current.size,
+          opacity: current.opacity,
+          smoothing: current.smoothing,
+          pressureEnabled: current.pressureEnabled,
+          calligraphyAngle: current.calligraphyAngle || 45,
+          brushStyle: {
+            preset: brush,
+            lineCap: style.lineCap || "round",
+            dashArray: style.dashArray || "",
+            image: current.customBrush || null
+          }
+        });
+      }
+    }
 
     window.dispatchEvent(new CustomEvent("rasem:brush-style", {
       detail: {
         name: brush,
         style,
+        image: current.customBrush || null,
         tool: activeTool
       }
     }));
@@ -102,9 +149,8 @@
     });
 
     const preview = document.getElementById("toolBrushPreview");
-
     if (preview) {
-      preview.textContent = "الشكل الحالي: " + labels[brush];
+      preview.textContent = "الفرشاة الحالية: " + (labels[brush] || brush);
     }
   }
 
@@ -112,7 +158,8 @@
     for (const [id, outputId, suffix, percent] of [
       ["brushSize", "brushSizeValue", "", false],
       ["brushOpacity", "brushOpacityValue", "%", true],
-      ["smoothing", "smoothingValue", "%", true]
+      ["smoothing", "smoothingValue", "%", true],
+      ["calligraphyAngle", "calligraphyAngleValue", "°", false]
     ]) {
       const input = document.getElementById(id);
       const output = document.getElementById(outputId);
@@ -123,7 +170,7 @@
 
       output.textContent = percent
         ? Math.round(value * 100) + suffix
-        : value;
+        : value + (suffix || "");
     }
   }
 
@@ -135,17 +182,27 @@
 
       if (tool === "pencil") {
         base.pressureEnabled = false;
-        base.smoothing = 0.65;
-      }
-
-      if (tool === "marker") {
-        base.pressureEnabled = false;
-        base.opacity = 0.4;
-        base.size = Math.max(8, base.size || 5.5);
         base.smoothing = 0.5;
+        base.brush = "round";
+      } else if (tool === "marker") {
+        base.pressureEnabled = false;
+        base.opacity = 0.45;
+        base.size = Math.max(12, base.size || 16);
+        base.smoothing = 0.4;
+        base.brush = "chisel";
+      } else if (tool === "calligraphy") {
+        base.pressureEnabled = true;
+        base.size = 14;
+        base.smoothing = 0.35;
+        base.brush = "calligraphy";
+        base.calligraphyAngle = 45;
+      } else if (tool === "eraser") {
+        base.size = 20;
+        base.eraserMode = "partial";
+      } else {
+        base.brush = "round";
       }
 
-      base.brush = "round";
       settings[tool] = base;
     }
 
@@ -160,100 +217,161 @@
       } else {
         el.value = String(current[key]);
       }
+    }
 
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
+    // Calligraphy specific input & presets
+    const angleInput = document.getElementById("calligraphyAngle");
+    if (angleInput && current.calligraphyAngle !== undefined) {
+      angleInput.value = String(current.calligraphyAngle);
+    }
+
+    // Calligraphy row and presets visibility
+    const isCal = (tool === "calligraphy" || current.brush === "calligraphy");
+    const calRow = document.getElementById("calligraphyAngleRow");
+    const calPresets = document.getElementById("calligraphyAnglePresets");
+    if (calRow) calRow.style.display = isCal ? "flex" : "none";
+    if (calPresets) {
+      calPresets.style.display = isCal ? "grid" : "none";
+      calPresets.querySelectorAll("[data-angle]").forEach(btn => {
+        btn.classList.toggle("active", Number(btn.dataset.angle) === Number(current.calligraphyAngle || 45));
+      });
+    }
+
+    // Eraser mode row visibility
+    const eraserRow = document.getElementById("eraserModeRow");
+    if (eraserRow) {
+      eraserRow.style.display = tool === "eraser" ? "flex" : "none";
+      const partialBtn = document.getElementById("eraserModePartialBtn");
+      const strokeBtn = document.getElementById("eraserModeStrokeBtn");
+      if (partialBtn && strokeBtn) {
+        partialBtn.classList.toggle("active", (current.eraserMode || "partial") === "partial");
+        strokeBtn.classList.toggle("active", current.eraserMode === "stroke");
+      }
+    }
+
+    // Brush presets section visibility
+    const presetsSection = document.getElementById("brushPresetsSection");
+    if (presetsSection) {
+      presetsSection.style.display = tool === "eraser" ? "none" : "block";
+    }
+
+    // Custom PNG preview & remove button
+    const pngPreview = document.getElementById("customBrushPreview");
+    const removeBrushBtn = document.getElementById("removeCustomBrushBtn");
+    if (pngPreview) {
+      if (current.customBrush) {
+        pngPreview.src = current.customBrush;
+        pngPreview.hidden = false;
+        if (removeBrushBtn) removeBrushBtn.style.display = "inline-flex";
+      } else {
+        pngPreview.hidden = true;
+        if (removeBrushBtn) removeBrushBtn.style.display = "none";
+      }
     }
 
     updateOutputs();
     apply();
   }
 
-  function open(button) {
-    const tool = button.dataset.tool;
-    if (!names[tool]) return;
+  function open(buttonOrToolName) {
+    const tool = typeof buttonOrToolName === "string"
+      ? buttonOrToolName
+      : buttonOrToolName?.dataset?.tool;
 
-    const active = toolbar.querySelector("[data-tool].active");
+    if (!tool || !names[tool]) return;
 
-    if (active) {
-      restore(active.dataset.tool);
-    }
+    activeTool = tool;
+    restore(tool);
 
     title.textContent = names[tool];
     popup.hidden = false;
+    if (backdrop) backdrop.hidden = false;
     opened = true;
   }
 
   function hide() {
     save();
     popup.hidden = true;
+    if (backdrop) backdrop.hidden = true;
     opened = false;
-    clearTimeout(timer);
-    pointer = null;
   }
 
+  if (backdrop) {
+    backdrop.addEventListener("click", hide);
+  }
 
-
-  // Custom PNG brush support
+  // Custom PNG brush upload & remove
   const pngInput = document.getElementById("customBrushPNG");
   const pngPreview = document.getElementById("customBrushPreview");
+  const removeBrushBtn = document.getElementById("removeCustomBrushBtn");
 
   if (pngInput) {
     pngInput.addEventListener("change", event => {
       const file = event.target.files?.[0];
       if (!file) return;
 
-      if (file.type !== "image/png") {
-        alert("يرجى اختيار صورة PNG فقط");
-        pngInput.value = "";
-        return;
-      }
-
-      if (file.size > 2 * 1024 * 1024) {
-        alert("حجم الصورة يجب ألا يتجاوز 2 ميجابايت");
-        pngInput.value = "";
-        return;
-      }
-
       const reader = new FileReader();
-
       reader.onload = () => {
         const imageData = reader.result;
-
-        if (!settings[activeTool]) {
-          settings[activeTool] = {};
-        }
+        if (!settings[activeTool]) settings[activeTool] = {};
 
         settings[activeTool].customBrush = imageData;
         settings[activeTool].brush = "custom";
 
         try {
           localStorage.setItem(STORAGE, JSON.stringify(settings));
-        } catch (error) {
-          alert("تعذر حفظ الفرشاة: مساحة التخزين غير كافية");
-          return;
+        } catch {}
+
+        if (pngPreview) {
+          pngPreview.src = imageData;
+          pngPreview.hidden = false;
         }
+        if (removeBrushBtn) removeBrushBtn.style.display = "inline-flex";
 
-        pngPreview.src = imageData;
-        pngPreview.hidden = false;
-
-        window.dispatchEvent(new CustomEvent("rasem:brush-style", {
-          detail: {
-            name: "custom",
-            image: imageData,
-            tool: activeTool
-          }
-        }));
-
-        const preview = document.getElementById("toolBrushPreview");
-        if (preview) preview.textContent = "الفرشاة المخصصة";
-
-        popup.querySelectorAll("[data-brush]").forEach(button => {
-          button.classList.remove("active");
-        });
+        apply();
       };
-
       reader.readAsDataURL(file);
+    });
+  }
+
+  if (removeBrushBtn) {
+    removeBrushBtn.addEventListener("click", () => {
+      if (!settings[activeTool]) settings[activeTool] = {};
+      settings[activeTool].customBrush = null;
+      settings[activeTool].brush = "round";
+
+      try {
+        localStorage.setItem(STORAGE, JSON.stringify(settings));
+      } catch {}
+
+      if (pngPreview) pngPreview.hidden = true;
+      removeBrushBtn.style.display = "none";
+      if (pngInput) pngInput.value = "";
+
+      apply();
+      restore(activeTool);
+    });
+  }
+
+  // Calligraphy Angle Presets handler
+  const calPresetsContainer = document.getElementById("calligraphyAnglePresets");
+  if (calPresetsContainer) {
+    calPresetsContainer.addEventListener("click", event => {
+      const btn = event.target.closest("[data-angle]");
+      if (!btn) return;
+      const angle = Number(btn.dataset.angle || 45);
+      const angleInput = document.getElementById("calligraphyAngle");
+      if (angleInput) angleInput.value = String(angle);
+
+      if (!settings[activeTool]) settings[activeTool] = {};
+      settings[activeTool].calligraphyAngle = angle;
+
+      calPresetsContainer.querySelectorAll("[data-angle]").forEach(b => {
+        b.classList.toggle("active", Number(b.dataset.angle) === angle);
+      });
+
+      save();
+      updateOutputs();
     });
   }
 
@@ -261,14 +379,42 @@
 
   popup.addEventListener("click", event => {
     const button = event.target.closest("[data-brush]");
-    if (!button) return;
+    if (button) {
+      if (!settings[activeTool]) settings[activeTool] = {};
+      settings[activeTool].brush = button.dataset.brush;
 
-    if (!settings[activeTool]) settings[activeTool] = {};
+      const calRow = document.getElementById("calligraphyAngleRow");
+      if (calRow) {
+        calRow.style.display = button.dataset.brush === "calligraphy" ? "flex" : "none";
+      }
 
-    settings[activeTool].brush = button.dataset.brush;
+      save();
+      updateOutputs();
+      return;
+    }
 
-    save();
-    updateOutputs();
+    // Eraser mode selection buttons
+    const eraserBtn = event.target.closest("[data-eraser-mode]");
+    if (eraserBtn) {
+      const mode = eraserBtn.dataset.eraserMode;
+      if (!settings[activeTool]) settings[activeTool] = {};
+      settings[activeTool].eraserMode = mode;
+
+      const partialBtn = document.getElementById("eraserModePartialBtn");
+      const strokeBtn = document.getElementById("eraserModeStrokeBtn");
+      if (partialBtn && strokeBtn) {
+        partialBtn.classList.toggle("active", mode === "partial");
+        strokeBtn.classList.toggle("active", mode === "stroke");
+      }
+
+      const eraserTool = window.rasem?.tools?.get?.("eraser");
+      if (eraserTool && typeof eraserTool.setMode === "function") {
+        eraserTool.setMode(mode);
+      }
+
+      save();
+      return;
+    }
   });
 
   popup.addEventListener("input", event => {
@@ -279,83 +425,99 @@
 
   popup.addEventListener("change", save);
 
+  // Long-press (ضغطة طويلة) on tool buttons to display options / settings
+  let longPressTimer = null;
+  let longPressTriggered = false;
+  let pressStartX = 0;
+  let pressStartY = 0;
+  let pressedButton = null;
 
-  // Double-click tool settings interaction
-  let lastToolClick = null;
-  let lastToolTime = 0;
+  toolbar.addEventListener("pointerdown", event => {
+    const button = event.target.closest("#toolbar [data-tool]");
+    if (!button) return;
 
-  const indicatorStyle = document.createElement("style");
-  indicatorStyle.textContent = `
-    #toolbar [data-tool].settings-pending {
-      background: #51447e !important;
-      color: #ffffff !important;
-      border-color: #b9a7ff !important;
-      box-shadow: 0 0 0 2px #a99aff,
-                  0 0 12px rgba(169,154,255,.8) !important;
-    }
-  `;
-  document.head.appendChild(indicatorStyle);
+    pressedButton = button;
+    pressStartX = event.clientX;
+    pressStartY = event.clientY;
+    longPressTriggered = false;
 
-  document.addEventListener("click", event => {
-    const button = event.target.closest(
-      '#toolbar [data-tool="pen"], ' +
-      '#toolbar [data-tool="pencil"], ' +
-      '#toolbar [data-tool="marker"]'
-    );
+    clearTimeout(longPressTimer);
+    button.classList.add("tool-pressing");
 
-    if (button) {
-      const tool = button.dataset.tool;
-      const now = Date.now();
-
-      const secondClick =
-        lastToolClick === tool &&
-        now - lastToolTime <= 900;
-
-      toolbar.querySelectorAll(".settings-pending")
-        .forEach(el => el.classList.remove("settings-pending"));
-
-      if (secondClick) {
-        lastToolClick = null;
-        lastToolTime = 0;
-        open(button);
-      } else {
-        lastToolClick = tool;
-        lastToolTime = now;
-
-        button.classList.add("settings-pending");
-
-        requestAnimationFrame(() => {
-          const active = toolbar.querySelector("[data-tool].active");
-
-          if (active && names[active.dataset.tool]) {
-            restore(active.dataset.tool);
-          }
-        });
+    longPressTimer = setTimeout(() => {
+      longPressTriggered = true;
+      button.classList.remove("tool-pressing");
+      if (navigator.vibrate) {
+        try { navigator.vibrate(40); } catch {}
       }
 
+      const tool = button.dataset.tool;
+      if (tool === "shapes") {
+        window.rasemShapesUI?.open?.();
+      } else if (names[tool]) {
+        open(tool);
+      }
+    }, 400); // 400ms standard long-press duration
+  });
+
+  toolbar.addEventListener("pointermove", event => {
+    if (!longPressTimer) return;
+    const dist = Math.hypot(event.clientX - pressStartX, event.clientY - pressStartY);
+    if (dist > 10) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+      pressedButton?.classList.remove("tool-pressing");
+    }
+  });
+
+  function cancelLongPress() {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+    pressedButton?.classList.remove("tool-pressing");
+  }
+
+  toolbar.addEventListener("pointerup", cancelLongPress);
+  toolbar.addEventListener("pointercancel", cancelLongPress);
+  toolbar.addEventListener("pointerleave", cancelLongPress);
+
+  // Prevent native browser context menu on long-press
+  toolbar.addEventListener("contextmenu", event => {
+    if (event.target.closest("#toolbar [data-tool]")) {
+      event.preventDefault();
+    }
+  });
+
+  // Suppress click event if long-press was already triggered; or open settings if already active tool clicked
+  toolbar.addEventListener("click", event => {
+    if (longPressTriggered) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      longPressTriggered = false;
       return;
     }
 
-    lastToolClick = null;
-    lastToolTime = 0;
+    const button = event.target.closest("#toolbar [data-tool]");
+    if (!button) return;
+    const tool = button.dataset.tool;
 
-    toolbar.querySelectorAll(".settings-pending")
-      .forEach(el => el.classList.remove("settings-pending"));
-
-    if (
-      opened &&
-      !popup.contains(event.target) &&
-      !toolbar.contains(event.target)
-    ) {
-      hide();
+    // If shapes button clicked, open shapes options modal
+    if (tool === "shapes") {
+      window.rasemShapesUI?.open?.();
+      return;
     }
-  });
 
-  document.addEventListener("keydown", event => {
-    if (event.key === "Escape" && opened) hide();
-  });
+    // If already active drawing tool clicked again, open its settings
+    if (button.classList.contains("active") && names[tool] && tool !== "eraser") {
+      open(tool);
+    }
+  }, false);
 
-  restore("pen");
-  updateOutputs();
+  // Global API
+  window.rasemToolSettings = {
+    open,
+    hide,
+    restore
+  };
 
 })();

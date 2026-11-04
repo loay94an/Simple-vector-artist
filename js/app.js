@@ -918,57 +918,140 @@ export class RasemApplication {
   async importDocumentFile(file) {
     if (this.destroyed || !file) return false;
 
-    let data;
+    const name = file.name.toLowerCase();
+    const isProject = name.endsWith(".rasem") || name.endsWith(".json") || file.type === "application/json";
 
-    try {
-      data = await this.modules.storage.importFile(file);
-
-      const document = this.modules.document;
-      const previous = document.toJSON();
-
+    if (isProject) {
+      let data;
       try {
-        document.id = data.id;
-        document.version = "2.0";
-        document.name = data.name;
-        document.camera = document.validateCamera(data.camera);
-        document.layers = data.layers;
-        document.activeLayerId = data.activeLayerId;
-        document.createdAt = data.createdAt;
-        document.updatedAt = data.updatedAt;
+        data = await this.modules.storage.importFile(file);
 
-        this.modules.camera.restore(document.camera, false);
-        this.modules.renderer.render(document);
-        this.modules.history.reset();
+        const documentModel = this.modules.document;
+        const previous = documentModel.toJSON();
 
-        if (!this.modules.storage.save()) {
-          throw new Error("تعذر حفظ المستند المستورد");
+        try {
+          documentModel.id = data.id;
+          documentModel.version = "2.0";
+          documentModel.name = data.name;
+          documentModel.camera = documentModel.validateCamera(data.camera);
+          documentModel.layers = data.layers;
+          documentModel.activeLayerId = data.activeLayerId;
+          documentModel.createdAt = data.createdAt;
+          documentModel.updatedAt = data.updatedAt;
+
+          this.modules.camera.restore(documentModel.camera, false);
+          this.modules.renderer.render(documentModel);
+          this.modules.history.reset();
+
+          if (!this.modules.storage.save()) {
+            throw new Error("تعذر حفظ المستند المستورد");
+          }
+
+          this.showToast("تم استيراد المستند بنجاح");
+          return true;
+
+        } catch (error) {
+          documentModel.id = previous.id;
+          documentModel.version = previous.version;
+          documentModel.name = previous.name;
+          documentModel.camera = previous.camera;
+          documentModel.layers = previous.layers;
+          documentModel.activeLayerId = previous.activeLayerId;
+          documentModel.createdAt = previous.createdAt;
+          documentModel.updatedAt = previous.updatedAt;
+
+          this.modules.camera.restore(previous.camera, false);
+          this.modules.renderer.render(documentModel);
+          this.modules.history.reset();
+
+          this.modules.storage.save();
+          throw error;
         }
 
-        this.showToast("تم استيراد المستند بنجاح");
-        return true;
-
       } catch (error) {
-        document.id = previous.id;
-        document.version = previous.version;
-        document.name = previous.name;
-        document.camera = previous.camera;
-        document.layers = previous.layers;
-        document.activeLayerId = previous.activeLayerId;
-        document.createdAt = previous.createdAt;
-        document.updatedAt = previous.updatedAt;
+        console.error("Document import failed:", error);
+        this.showToast(error.message || "تعذر استيراد المستند");
+        return false;
+      }
+    }
 
-        this.modules.camera.restore(previous.camera, false);
-        this.modules.renderer.render(document);
-        this.modules.history.reset();
+    // Handle Image, SVG, and PDF Imports as editable image elements on current layer
+    try {
+      const reader = new FileReader();
+      const isSvg = name.endsWith(".svg") || file.type === "image/svg+xml";
+      const isPdf = name.endsWith(".pdf") || file.type === "application/pdf";
 
-        this.modules.storage.save();
-
-        throw error;
+      if (isSvg) {
+        const text = await file.text();
+        const dataUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(text);
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          const w = Math.min(600, img.naturalWidth || 400);
+          const h = Math.min(600, img.naturalHeight || 300);
+          const element = {
+            id: `svg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            type: "image",
+            svgTag: "image",
+            geometry: {
+              x: 200,
+              y: 200,
+              width: w,
+              height: h,
+              href: dataUrl,
+              preserveAspectRatio: "xMidYMid meet"
+            },
+            style: { opacity: 1 }
+          };
+          this.modules.document.addElement(element);
+          this.modules.renderer.render(this.modules.document);
+          this.scheduleAutosave();
+          this.showToast("تم إدراج ملف SVG بنجاح");
+        };
+        img.src = dataUrl;
+        return true;
       }
 
-    } catch (error) {
-      console.error("Document import failed:", error);
-      this.showToast(error.message || "تعذر استيراد المستند");
+      reader.onload = () => {
+        const dataUrl = reader.result;
+        const img = new Image();
+        img.onload = () => {
+          let w = img.naturalWidth || 400;
+          let h = img.naturalHeight || 300;
+          if (w > 800) {
+            h = Math.round((800 / w) * h);
+            w = 800;
+          }
+
+          const element = {
+            id: `img-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            type: "image",
+            svgTag: "image",
+            geometry: {
+              x: 150,
+              y: 150,
+              width: w,
+              height: h,
+              href: dataUrl,
+              preserveAspectRatio: "xMidYMid meet"
+            },
+            style: { opacity: 1 }
+          };
+
+          this.modules.document.addElement(element);
+          this.modules.renderer.render(this.modules.document);
+          this.scheduleAutosave();
+          this.showToast(isPdf ? "تم إدراج مستند PDF بنجاح" : "تم إدراج الصورة بنجاح");
+        };
+        img.src = dataUrl;
+      };
+
+      reader.readAsDataURL(file);
+      return true;
+
+    } catch (err) {
+      console.error("Media import failed:", err);
+      this.showToast("تعذر استيراد الملف المرفق");
       return false;
     }
   }
@@ -1012,7 +1095,7 @@ export class RasemApplication {
   }
 
   async exportPDF(options = {}) {
-    return PDFExport.export(
+    return PDFExport.download(
       this.modules.document.toJSON(),
       options
     );

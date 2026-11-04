@@ -1,9 +1,25 @@
+/* =========================================================
+   RASEM 3.0 - PWA SERVICE WORKER
+   Cache-First Strategy for offline capability and instant loads.
+========================================================= */
 
-const CACHE_NAME = "rasem-pwa-v1";
-const CORE_FILES = [
+const CACHE_NAME = "rasem-pwa-v3";
+const PRECACHE_ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
+  "./css/app.css",
+  "./js/app.js",
+  "./js/core.js",
+  "./js/engine.js",
+  "./js/tools.js",
+  "./js/layers-history.js",
+  "./js/precision.js",
+  "./js/storage-export.js",
+  "./js/ui.js",
+  "./js/brush-library.js",
+  "./js/color-ui.js",
+  "./js/tool-settings-popup.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png"
 ];
@@ -11,7 +27,7 @@ const CORE_FILES = [
 self.addEventListener("install", event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(CORE_FILES))
+      .then(cache => cache.addAll(PRECACHE_ASSETS))
       .then(() => self.skipWaiting())
   );
 });
@@ -21,7 +37,7 @@ self.addEventListener("activate", event => {
     caches.keys().then(keys =>
       Promise.all(
         keys.filter(key => key !== CACHE_NAME)
-            .map(key => caches.delete(key))
+          .map(key => caches.delete(key))
       )
     ).then(() => self.clients.claim())
   );
@@ -29,39 +45,35 @@ self.addEventListener("activate", event => {
 
 self.addEventListener("fetch", event => {
   const request = event.request;
+  if (request.method !== "GET") return;
+
   const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
 
-  if (request.method !== "GET" ||
-      url.origin !== self.location.origin) return;
-
-  if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request).then(response => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then(cache =>
-          cache.put("./index.html", copy)
-        );
-        return response;
-      }).catch(async () =>
-        await caches.match(request) ||
-        await caches.match("./index.html")
-      )
-    );
-    return;
-  }
-
+  // Stale-While-Revalidate or Cache-First for static assets
   event.respondWith(
-    caches.match(request).then(cached => {
-      if (cached) return cached;
+    caches.match(request).then(cachedResponse => {
+      if (cachedResponse) {
+        // Fetch in background to update cache
+        fetch(request).then(networkResponse => {
+          if (networkResponse && networkResponse.status === 200) {
+            caches.open(CACHE_NAME).then(cache => cache.put(request, networkResponse));
+          }
+        }).catch(() => {});
+        return cachedResponse;
+      }
 
-      return fetch(request).then(response => {
-        if (response.ok) {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then(cache =>
-            cache.put(request, copy)
-          );
+      return fetch(request).then(networkResponse => {
+        if (!networkResponse || networkResponse.status !== 200) {
+          return networkResponse;
         }
-        return response;
+        const copy = networkResponse.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+        return networkResponse;
+      }).catch(async () => {
+        if (request.mode === "navigate") {
+          return await caches.match("./index.html");
+        }
       });
     })
   );
