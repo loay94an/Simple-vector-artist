@@ -1,7 +1,7 @@
-import { Capacitor } from "@capacitor/core";
+import { Capacitor } from "../node_modules/@capacitor/core/dist/index.js";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
-import { registerPlugin } from "@capacitor/core";
+import { registerPlugin } from "../node_modules/@capacitor/core/dist/index.js";
 
 
 /* =========================================================
@@ -74,45 +74,84 @@ function escapeXML(value) {
 
 const Downloads = registerPlugin("Downloads");
 
+
 async function downloadBlob(blob, filename) {
-  if (!(blob instanceof Blob)) {
-    throw new TypeError("Invalid export Blob");
+  const isAndroid =
+    Capacitor.isNativePlatform() &&
+    Capacitor.getPlatform() === "android";
+
+  if (isAndroid) {
+    let base64;
+    let mimeType = "application/octet-stream";
+
+    if (blob && blob.__native === true) {
+      base64 = blob.base64;
+      mimeType = blob.mimeType || mimeType;
+    } else {
+      if (!(blob instanceof Blob) || blob.size === 0) {
+        throw new TypeError("ملف التصدير فارغ أو غير صالح");
+      }
+
+      mimeType = blob.type || mimeType;
+
+      const buffer = await blob.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      const chunkSize = 0x8000;
+      let binary = "";
+
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(
+          ...bytes.subarray(i, i + chunkSize)
+        );
+      }
+
+      base64 = btoa(binary);
+    }
+
+    if (
+      typeof base64 !== "string" ||
+      base64.length === 0
+    ) {
+      throw new Error("بيانات الملف Base64 غير صالحة");
+    }
+
+    const result = await Downloads.save({
+      filename: String(filename),
+      data: base64,
+      mimeType
+    });
+
+    if (result?.cancelled) {
+      return false;
+    }
+
+    if (!result?.saved || !result?.uri) {
+      throw new Error("لم يؤكد Android حفظ الملف");
+    }
+
+    console.log("Android export saved:", filename);
+    return true;
   }
 
-  if (
-    Capacitor.isNativePlatform() &&
-    Capacitor.getPlatform() === "android"
-  ) {
-    const dataUrl = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(
-        reader.error || new Error("تعذرت قراءة الملف")
-      );
-      reader.readAsDataURL(blob);
-    });
-
-    const base64 = String(dataUrl).split(",")[1];
-
-    const saved = await Downloads.save({
-      filename,
-      data: base64,
-      mimeType: blob.type || "application/octet-stream"
-    });
-
-    return !!saved?.uri;
+  // Browser download: preserve existing web behavior.
+  if (!(blob instanceof Blob) || blob.size === 0) {
+    throw new TypeError("ملف التصدير فارغ أو غير صالح");
   }
 
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
 
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
-  return true;
+  try {
+    link.href = url;
+    link.download = filename;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    return true;
+  } finally {
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
 }
 
 function normalizeFilename(name, extension) {
@@ -1091,6 +1130,9 @@ export class PNGExport {
     );
 
     const svg = SVGExport.generate(data, options);
+
+    alert("PNG-DIAG 1\nBounds: " + JSON.stringify(bounds) +
+      "\nScale: " + scale + "\nSVG length: " + svg.length);
     const svgBlob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(svgBlob);
 
@@ -1103,6 +1145,9 @@ export class PNGExport {
         image.onerror = () => reject(new Error("Unable to load SVG image for PNG rendering"));
         image.src = url;
       });
+
+      alert("PNG-DIAG 2\nnaturalWidth: " + image.naturalWidth +
+        "\nnaturalHeight: " + image.naturalHeight);
 
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.round(bounds.width * scale));
@@ -1118,6 +1163,30 @@ export class PNGExport {
 
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
 
+      const sw = Math.min(canvas.width, 100);
+      const sh = Math.min(canvas.height, 100);
+      const pixels = context.getImageData(0, 0, sw, sh).data;
+      let nonTransparent = 0;
+
+      for (let i = 3; i < pixels.length; i += 4) {
+        if (pixels[i] > 0) nonTransparent++;
+      }
+
+      alert("PNG-DIAG 3\nCanvas: " + canvas.width + "x" + canvas.height +
+        "\nSample: " + sw + "x" + sh +
+        "\nNon-transparent pixels: " + nonTransparent);
+
+      // Android: تجاوز toBlob → toDataURL مباشرة
+      if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android") {
+        const dataUrl = canvas.toDataURL("image/png");
+        const b64 = dataUrl.split(",")[1] || "";
+        alert("[PNG-DIAG] canvas=" + canvas.width + "x" + canvas.height +
+              " img=" + image.naturalWidth + "x" + image.naturalHeight +
+              " base64Len=" + b64.length);
+        return { __native: true, base64: b64, mimeType: "image/png" };
+      }
+
+      // Web: toBlob كما هو
       const blob = await new Promise((resolve, reject) => {
         canvas.toBlob(
           result => {
@@ -1136,13 +1205,31 @@ export class PNGExport {
 
   static async download(documentData, options = {}) {
     try {
-      const blob = await this.export(documentData, options);
-      return downloadBlob(
-        blob,
-        normalizeFilename(documentData.name, "png")
-      );
+      const result = await this.export(documentData, options);
+      const filename = normalizeFilename(documentData.name, "png");
+
+      if (result && result.__native) {
+        try {
+          const saveResult = await Downloads.save({
+            filename,
+            data: result.base64,
+            mimeType: result.mimeType
+          });
+          alert("[PNG-SAVE] " + JSON.stringify(saveResult));
+          if (saveResult?.cancelled) return false;
+          if (!saveResult?.saved || !saveResult?.uri) {
+            throw new Error("لم يؤكد Android حفظ الملف");
+          }
+          return true;
+        } catch (saveErr) {
+          alert("[PNG-SAVE-ERR] " + (saveErr && saveErr.message ? saveErr.message : String(saveErr)));
+          return false;
+        }
+      }
+
+      return downloadBlob(result, filename);
     } catch (error) {
-      console.error("PNG export failed:", error);
+      alert("[PNG-EXP-ERR] " + (error && error.message ? error.message : String(error)));
       return false;
     }
   }
@@ -1321,7 +1408,24 @@ stream
       // Trailer
       addText(`trailer\n<< /Size ${objectCount + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`);
 
-      return new Blob(parts, { type: "application/pdf" });
+      const pdfBlob = new Blob(parts, { type: "application/pdf" });
+
+      // Android native:حوّل إلى Base64 مباشرة
+      if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android") {
+        const arrayBuffer = await pdfBlob.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = "";
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          const chunk = bytes.subarray(i, i + chunkSize);
+          binary += String.fromCharCode.apply(null, chunk);
+        }
+        const b64 = btoa(binary);
+        alert("[PDF-DIAG] pdfBytes=" + bytes.length + " base64Len=" + b64.length);
+        return { __native: true, base64: b64, mimeType: "application/pdf" };
+      }
+
+      return pdfBlob;
 
     } finally {
       URL.revokeObjectURL(url);
@@ -1330,13 +1434,31 @@ stream
 
   static async download(documentData, options = {}) {
     try {
-      const blob = await this.export(documentData, options);
-      return downloadBlob(
-        blob,
-        normalizeFilename(documentData.name, "pdf")
-      );
+      const result = await this.export(documentData, options);
+      const filename = normalizeFilename(documentData.name, "pdf");
+
+      if (result && result.__native) {
+        try {
+          const saveResult = await Downloads.save({
+            filename,
+            data: result.base64,
+            mimeType: result.mimeType
+          });
+          alert("[PDF-SAVE] " + JSON.stringify(saveResult));
+          if (saveResult?.cancelled) return false;
+          if (!saveResult?.saved || !saveResult?.uri) {
+            throw new Error("لم يؤكد Android حفظ الملف");
+          }
+          return true;
+        } catch (saveErr) {
+          alert("[PDF-SAVE-ERR] " + (saveErr && saveErr.message ? saveErr.message : String(saveErr)));
+          return false;
+        }
+      }
+
+      return downloadBlob(result, filename);
     } catch (error) {
-      console.error("PDF export failed:", error);
+      alert("[PDF-EXP-ERR] " + (error && error.message ? error.message : String(error)));
       return false;
     }
   }

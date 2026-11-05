@@ -13,7 +13,7 @@ import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.OutputStream;
-import java.util.Base64;
+import android.util.Base64;
 
 @CapacitorPlugin(name = "Downloads")
 public class DownloadsPlugin extends Plugin {
@@ -86,7 +86,7 @@ public class DownloadsPlugin extends Plugin {
                 throw new Exception("بيانات الملف مفقودة");
             }
 
-            byte[] bytes = Base64.getDecoder().decode(base64);
+            byte[] bytes = Base64.decode(base64, Base64.NO_WRAP);
 
             try (
                 OutputStream output = getContext()
