@@ -1,3 +1,7 @@
+import { Capacitor } from "@capacitor/core";
+import { Filesystem, Directory } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
+
 
 /* =========================================================
    RASEM 2.0
@@ -72,14 +76,14 @@ async function downloadBlob(blob, filename) {
   }
 
   // Native Android: save the file in cache and open the system share sheet.
-  const { Capacitor } = await import("@capacitor/core");
+
 
   if (
     Capacitor.isNativePlatform() &&
     Capacitor.getPlatform() === "android"
   ) {
-    const { Filesystem, Directory } = await import("@capacitor/filesystem");
-    const { Share } = await import("@capacitor/share");
+
+
 
     const dataUrl = await new Promise((resolve, reject) => {
       const reader = new FileReader();
