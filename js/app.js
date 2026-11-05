@@ -1458,3 +1458,10 @@ if (typeof window !== "undefined") {
 export {
   rasemApp
 };
+
+// Expose export classes globally so inline scripts in index.html can use them
+if (typeof window !== "undefined") {
+  window.SVGExport = SVGExport;
+  window.PNGExport = PNGExport;
+  window.PDFExport = PDFExport;
+}

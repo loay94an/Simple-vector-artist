@@ -10,6 +10,7 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+          '@capacitor/core': path.resolve(__dirname, 'node_modules/@capacitor/core/dist/index.js'),
       },
     },
     server: {

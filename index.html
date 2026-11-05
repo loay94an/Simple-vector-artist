@@ -890,7 +890,7 @@
 
         const data = typeof doc.toJSON === "function" ? doc.toJSON() : doc;
 
-        const storageModule = await import("./js/storage-export.js");
+        const storageModule = { SVGExport: window.SVGExport, PNGExport: window.PNGExport, PDFExport: window.PDFExport };
         if (currentFormat === "svg") {
           storageModule.SVGExport.download(data, options);
         } else if (currentFormat === "png") {
