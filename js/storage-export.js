@@ -66,17 +66,54 @@ function escapeXML(value) {
     .replace(/'/g, "&apos;");
 }
 
-function downloadBlob(blob, filename) {
+async function downloadBlob(blob, filename) {
   if (!(blob instanceof Blob)) {
     throw new TypeError("Invalid export Blob");
   }
 
+  // Native Android: save the file in cache and open the system share sheet.
+  const { Capacitor } = await import("@capacitor/core");
+
+  if (
+    Capacitor.isNativePlatform() &&
+    Capacitor.getPlatform() === "android"
+  ) {
+    const { Filesystem, Directory } = await import("@capacitor/filesystem");
+    const { Share } = await import("@capacitor/share");
+
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(
+        reader.error || new Error("Unable to read exported file")
+      );
+      reader.readAsDataURL(blob);
+    });
+
+    const base64 = String(dataUrl).split(",")[1];
+
+    const savedFile = await Filesystem.writeFile({
+      path: filename,
+      data: base64,
+      directory: Directory.Cache,
+      recursive: true
+    });
+
+    await Share.share({
+      title: filename,
+      text: "ملف تم تصديره من رسام فكتور بسيط",
+      url: savedFile.uri,
+      dialogTitle: "مشاركة أو حفظ الملف"
+    });
+
+    return true;
+  }
+
+  // Regular browser download.
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-
   link.href = url;
   link.download = filename;
-
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -1032,10 +1069,10 @@ export class SVGExport {
     return new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
   }
 
-  static download(documentData, options = {}) {
+  static async download(documentData, options = {}) {
     try {
       const blob = this.export(documentData, options);
-      return downloadBlob(
+      return await downloadBlob(
         blob,
         normalizeFilename(documentData.name, "svg")
       );

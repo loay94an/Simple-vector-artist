@@ -753,7 +753,7 @@ export class RasemApplication {
           let result = false;
 
           if (format === "svg") {
-            result = this.exportSVG();
+            result = await this.exportSVG();
           } else if (format === "png") {
             result = await this.exportPNG();
           } else if (format === "pdf") {
@@ -1080,7 +1080,7 @@ export class RasemApplication {
   // EXPORT
   // =======================================================
 
-  exportSVG(options = {}) {
+  async exportSVG(options = {}) {
     return SVGExport.download(
       this.modules.document.toJSON(),
       options
