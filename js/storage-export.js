@@ -1,6 +1,7 @@
 import { Capacitor } from "@capacitor/core";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
+import { registerPlugin } from "@capacitor/core";
 
 
 /* =========================================================
@@ -70,50 +71,38 @@ function escapeXML(value) {
     .replace(/'/g, "&apos;");
 }
 
+
+const Downloads = registerPlugin("Downloads");
+
 async function downloadBlob(blob, filename) {
   if (!(blob instanceof Blob)) {
     throw new TypeError("Invalid export Blob");
   }
 
-  // Native Android: save the file in cache and open the system share sheet.
-
-
   if (
     Capacitor.isNativePlatform() &&
     Capacitor.getPlatform() === "android"
   ) {
-
-
-
     const dataUrl = await new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result);
       reader.onerror = () => reject(
-        reader.error || new Error("Unable to read exported file")
+        reader.error || new Error("تعذرت قراءة الملف")
       );
       reader.readAsDataURL(blob);
     });
 
     const base64 = String(dataUrl).split(",")[1];
 
-    const savedFile = await Filesystem.writeFile({
-      path: filename,
+    const saved = await Downloads.save({
+      filename,
       data: base64,
-      directory: Directory.Cache,
-      recursive: true
+      mimeType: blob.type || "application/octet-stream"
     });
 
-    await Share.share({
-      title: filename,
-      text: "ملف تم تصديره من رسام فكتور بسيط",
-      url: savedFile.uri,
-      dialogTitle: "مشاركة أو حفظ الملف"
-    });
-
-    return true;
+    return !!saved?.uri;
   }
 
-  // Regular browser download.
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -122,8 +111,7 @@ async function downloadBlob(blob, filename) {
   link.click();
   link.remove();
 
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
   return true;
 }
 
