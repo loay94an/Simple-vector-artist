@@ -855,6 +855,19 @@ export function calculateContentBounds(documentData, padding = 30) {
         }
       }
 
+      // Text elements bounds
+      if (el.type === "text" || el.svgTag === "text") {
+        hasElements = true;
+        const tx = safeNumber(g?.x, 0);
+        const ty = safeNumber(g?.y, 0);
+        const fsize = safeNumber(style.fontSize || style.size, 24);
+        const tw = ((el.text || "").length || 4) * fsize * 0.65;
+        minX = Math.min(minX, tx);
+        minY = Math.min(minY, ty - fsize);
+        maxX = Math.max(maxX, tx + tw);
+        maxY = Math.max(maxY, ty);
+      }
+
       // 3. Fallback: Parse path string
       const pathStr = el.path || g?.d;
       if (typeof pathStr === "string" && (!el.points || el.points.length === 0)) {
@@ -929,6 +942,7 @@ export class SVGExport {
       "polygon",
       "polyline",
       "image",
+      "text",
       "g"
     ]);
 
@@ -940,6 +954,17 @@ export class SVGExport {
 
     const style = element.style || {};
     const geometry = element.geometry || {};
+
+    // Support for text elements
+    if (element.type === "text" || element.svgTag === "text") {
+      const fontSize = safeNumber(style.fontSize || style.size, 24);
+      const color = escapeXML(style.color || style.fill || "#111111");
+      const textVal = escapeXML(element.text || geometry.text || "");
+      const fontFamily = escapeXML(style.fontFamily || "'Cairo', 'Segoe UI', system-ui, sans-serif");
+      const gx = safeNumber(geometry.x, 0);
+      const gy = safeNumber(geometry.y, 0);
+      return `<text data-id="${escapeXML(element.id)}" x="${gx}" y="${gy}" font-size="${fontSize}" font-family="${fontFamily}" font-weight="${escapeXML(style.fontWeight || "600")}" fill="${color}" direction="rtl" xml:space="preserve">${textVal}</text>`;
+    }
 
     // Support for custom PNG image brush stamps
     if (style.customBrush && Array.isArray(element.points) && element.points.length > 0) {

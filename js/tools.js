@@ -63,6 +63,59 @@ const ToolUtils = {
     const point = engine.getWorldPoint(event);
 
     return this.validPoint(point) ? point : null;
+  },
+
+  elementBounds(el) {
+    if (!el) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    if (Array.isArray(el.points) && el.points.length > 0) {
+      for (const pt of el.points) {
+        minX = Math.min(minX, pt.x);
+        minY = Math.min(minY, pt.y);
+        maxX = Math.max(maxX, pt.x);
+        maxY = Math.max(maxY, pt.y);
+      }
+    } else if (el.geometry) {
+      const g = el.geometry;
+      if (Number.isFinite(g.x) && Number.isFinite(g.width)) {
+        minX = g.x;
+        minY = g.y;
+        maxX = g.x + g.width;
+        maxY = g.y + g.height;
+      } else if (Number.isFinite(g.cx)) {
+        const rx = g.rx ?? g.r ?? 10;
+        const ry = g.ry ?? g.r ?? 10;
+        minX = g.cx - rx;
+        minY = g.cy - ry;
+        maxX = g.cx + rx;
+        maxY = g.cy + ry;
+      } else if (Number.isFinite(g.x1)) {
+        minX = Math.min(g.x1, g.x2);
+        minY = Math.min(g.y1, g.y2);
+        maxX = Math.max(g.x1, g.x2);
+        maxY = Math.max(g.y1, g.y2);
+      }
+    }
+    if (el.type === "text" || el.svgTag === "text") {
+      const tx = el.geometry?.x ?? 0;
+      const ty = el.geometry?.y ?? 0;
+      const fontSize = el.style?.fontSize || el.style?.size || 24;
+      const tw = ((el.text || "").length || 4) * fontSize * 0.65;
+      const th = fontSize * 1.2;
+      minX = tx;
+      minY = ty - th;
+      maxX = tx + tw;
+      maxY = ty;
+    }
+    if (!Number.isFinite(minX)) return null;
+    return {
+      minX,
+      minY,
+      maxX,
+      maxY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY)
+    };
   }
 };
 
@@ -404,6 +457,18 @@ export class Selector extends BaseTool {
           maxY = Math.max(maxY, g.cy + ry);
         }
       }
+
+      if (el.type === "text" || el.svgTag === "text") {
+        const tx = el.geometry?.x ?? 0;
+        const ty = el.geometry?.y ?? 0;
+        const fontSize = el.style?.fontSize || el.style?.size || 24;
+        const tw = ((el.text || "").length || 4) * fontSize * 0.65;
+        const th = fontSize * 1.2;
+        minX = Math.min(minX, tx);
+        minY = Math.min(minY, ty - th);
+        maxX = Math.max(maxX, tx + tw);
+        maxY = Math.max(maxY, ty);
+      }
     }
 
     if (!Number.isFinite(minX)) return null;
@@ -562,6 +627,7 @@ export class Selector extends BaseTool {
       this.initialSnapshot.set(el.id, {
         points: Array.isArray(el.points) ? el.points.map(p => ({ ...p })) : null,
         geometry: el.geometry ? { ...el.geometry } : null,
+        style: el.style ? { ...el.style } : null,
         path: el.path
       });
     }
@@ -656,6 +722,35 @@ export class Selector extends BaseTool {
             y: originY + (p.y - originY) * scaleY
           }));
           el.path = this.engine.buildPath(el.points);
+        } else if (snap.geometry) {
+          el.geometry = { ...snap.geometry };
+          if (Number.isFinite(snap.geometry.width) && Number.isFinite(snap.geometry.height)) {
+            el.geometry.width = Math.max(10, snap.geometry.width * scaleX);
+            el.geometry.height = Math.max(10, snap.geometry.height * scaleY);
+          }
+          if (Number.isFinite(snap.geometry.x)) {
+            el.geometry.x = originX + (snap.geometry.x - originX) * scaleX;
+          }
+          if (Number.isFinite(snap.geometry.y)) {
+            el.geometry.y = originY + (snap.geometry.y - originY) * scaleY;
+          }
+          if (Number.isFinite(snap.geometry.cx)) {
+            el.geometry.cx = originX + (snap.geometry.cx - originX) * scaleX;
+            if (Number.isFinite(snap.geometry.rx)) el.geometry.rx = Math.max(2, snap.geometry.rx * scaleX);
+            if (Number.isFinite(snap.geometry.ry)) el.geometry.ry = Math.max(2, snap.geometry.ry * scaleY);
+            if (Number.isFinite(snap.geometry.r)) el.geometry.r = Math.max(2, snap.geometry.r * ((scaleX + scaleY) / 2));
+          }
+          if (Number.isFinite(snap.geometry.x1)) {
+            el.geometry.x1 = originX + (snap.geometry.x1 - originX) * scaleX;
+            el.geometry.y1 = originY + (snap.geometry.y1 - originY) * scaleY;
+            el.geometry.x2 = originX + (snap.geometry.x2 - originX) * scaleX;
+            el.geometry.y2 = originY + (snap.geometry.y2 - originY) * scaleY;
+          }
+          if ((el.type === "text" || el.svgTag === "text") && snap.style) {
+            const fontScale = (scaleX + scaleY) / 2;
+            const baseFontSize = snap.style.fontSize || snap.style.size || 24;
+            el.style = { ...el.style, fontSize: Math.max(8, Math.round(baseFontSize * fontScale)) };
+          }
         }
       }
 
@@ -1336,7 +1431,128 @@ export class Hand extends BaseTool {
 }
 
 /* =========================================================
-   11. TOOL MANAGER
+   11. TEXT TOOL
+========================================================= */
+
+export class TextTool extends BaseTool {
+  constructor(engine, camera) {
+    super(engine, camera);
+    this.name = "text";
+  }
+
+  down(event) {
+    const point = ToolUtils.eventPoint(this.engine, event);
+    if (!point) return false;
+
+    this.promptText(point);
+    return true;
+  }
+
+  promptText(point) {
+    let modal = document.getElementById("textInputModalBackdrop");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "textInputModalBackdrop";
+      modal.className = "modal-overlay-wrapper";
+      modal.innerHTML = `
+        <div class="modal-box" style="padding:16px; width:min(380px, calc(100vw - 28px));" dir="rtl">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid var(--border); padding-bottom:8px;">
+            <strong style="font-size:14px; color:var(--text); display:flex; align-items:center; gap:8px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>
+              كتابة نص وملاحظة على اللوحة
+            </strong>
+            <button type="button" id="closeTextModalBtn" class="concepts-close-btn" style="border:none; background:transparent; font-size:18px; cursor:pointer; color:var(--text-muted);">✕</button>
+          </div>
+          <textarea id="textModalArea" placeholder="اكتب هنا النص أو الملاحظة..." rows="3" style="width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--text); font-family:'Cairo', sans-serif; font-size:14px; outline:none; resize:vertical;"></textarea>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <label for="textModalFontSize" style="font-size:12px; color:var(--text-muted);">الحجم:</label>
+              <select id="textModalFontSize" style="padding:4px 8px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:12px;">
+                <option value="18">18px صغير</option>
+                <option value="24" selected>24px متوسط</option>
+                <option value="36">36px كبير</option>
+                <option value="48">48px عريض</option>
+                <option value="64">64px ضخم</option>
+              </select>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button type="button" id="cancelTextModalBtn" class="header-action-btn" style="padding:6px 12px; font-size:12px;">إلغاء</button>
+              <button type="button" id="confirmTextModalBtn" class="header-action-btn primary" style="padding:6px 16px; font-size:12px; font-weight:700;">إدراج</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    modal.hidden = false;
+    const textarea = modal.querySelector("#textModalArea");
+    const fontSelect = modal.querySelector("#textModalFontSize");
+    if (textarea) {
+      textarea.value = "";
+      setTimeout(() => textarea.focus(), 60);
+    }
+
+    const hide = () => {
+      modal.hidden = true;
+    };
+
+    const closeBtn = modal.querySelector("#closeTextModalBtn");
+    const cancelBtn = modal.querySelector("#cancelTextModalBtn");
+    const confirmBtn = modal.querySelector("#confirmTextModalBtn");
+
+    if (closeBtn) closeBtn.onclick = hide;
+    if (cancelBtn) cancelBtn.onclick = hide;
+    modal.onclick = (e) => {
+      if (e.target === modal) hide();
+    };
+
+    if (confirmBtn) {
+      confirmBtn.onclick = () => {
+        const text = textarea?.value?.trim();
+        if (!text) {
+          hide();
+          return;
+        }
+        const fontSize = parseInt(fontSelect?.value || "24", 10);
+        const color = this.engine.settings?.color || "#111111";
+
+        const element = {
+          id: ToolUtils.id("text"),
+          type: "text",
+          svgTag: "text",
+          text,
+          geometry: {
+            x: Math.round(point.x),
+            y: Math.round(point.y)
+          },
+          style: {
+            color,
+            fill: color,
+            fontSize,
+            size: fontSize,
+            fontFamily: "'Cairo', 'Segoe UI', system-ui, sans-serif",
+            fontWeight: "600"
+          }
+        };
+
+        this.engine.document.addElement(element);
+        this.engine.commitHistory();
+        this.engine.renderer.render(this.engine.document);
+        hide();
+
+        const selector = this.engine.toolManager?.get("selector") || window.rasem?.tools?.get?.("selector");
+        if (selector) {
+          this.engine.toolManager?.activate("selector");
+          selector.select(element.id);
+        }
+      };
+    }
+  }
+}
+
+/* =========================================================
+   12. TOOL MANAGER
 ========================================================= */
 
 export class ToolManager {
@@ -1368,6 +1584,7 @@ export class ToolManager {
     this.register("pencil", new Pencil(this.engine, this.camera));
     this.register("marker", new Marker(this.engine, this.camera));
     this.register("eraser", new Eraser(this.engine, this.camera));
+    this.register("text", new TextTool(this.engine, this.camera));
 
     this.register("selector", new Selector(this.engine, this.camera));
     this.register("lasso", new Lasso(this.engine, this.camera));

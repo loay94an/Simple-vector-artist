@@ -458,12 +458,31 @@
       if (tool === "shapes") {
         window.rasemShapesUI?.open?.();
       } else if (tool === "hand") {
-        const lastTool = window.rasem?.lastDrawingTool || "pen";
-        window.rasem?.tools?.activate?.(lastTool);
-        window.rasem?.showToast?.("تم تفعيل وضع الرسم مع الحركة الحرة معاً");
-        document.querySelectorAll("[data-tool]").forEach(b => {
-          b.classList.toggle("active", b.dataset.tool === lastTool);
-        });
+        const app = window.rasemApp || window.rasem;
+        const currentTool = window.rasem?.tools?.activeToolName || "hand";
+
+        if (currentTool === "hand") {
+          // العودة إلى أداة الرسم مع إبقاء وتأكيد وضع التحريك بإصبعين مفعلاً
+          app?.setTwoFingerPan?.(true, false);
+          const lastTool = window.rasem?.lastDrawingTool || "pen";
+          window.rasem?.tools?.activate?.(lastTool);
+          window.rasem?.showToast?.("تم تفعيل وضع الرسم مع التحريك بإصبعين ✌ (ارسم بإصبع وحرّك بإصبعين)");
+          document.querySelectorAll("#toolbar [data-tool]").forEach(b => {
+            b.classList.toggle("active", b.dataset.tool === lastTool);
+          });
+        } else {
+          // التبديل إلى وضع اليد أو تفعيل التحريك بإصبعين
+          if (app?.twoFingerPanEnabled) {
+            window.rasem?.tools?.activate?.("hand");
+            window.rasem?.showToast?.("تم تفعيل وضع اليد (التحريك بإصبع واحد)");
+            document.querySelectorAll("#toolbar [data-tool]").forEach(b => {
+              b.classList.toggle("active", b.dataset.tool === "hand");
+            });
+          } else {
+            app?.setTwoFingerPan?.(true, true);
+          }
+        }
+        app?.updateTwoFingerPanUI?.();
       } else if (names[tool]) {
         open(tool);
       }

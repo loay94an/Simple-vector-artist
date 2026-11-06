@@ -325,74 +325,8 @@
     // Eyedropper
     const eyeBtn = $("conceptsEyedropper");
     if (eyeBtn) {
-      eyeBtn.addEventListener("click", async () => {
-        if (window.EyeDropper) {
-          try {
-            const eye = new window.EyeDropper();
-            const res = await eye.open();
-            if (res?.sRGBHex) {
-              const hsv = hexToHsv(res.sRGBHex);
-              activeHue = hsv.h;
-              activeSat = hsv.s;
-              activeVal = hsv.v;
-              applyColor(res.sRGBHex, true);
-              drawWheel();
-              updateHarmonies();
-            }
-          } catch {}
-        } else {
-          // Fallback Canvas Eyedropper
-          hideConceptsWheel();
-          const svgCanvas = document.getElementById("drawingCanvas");
-          if (!svgCanvas) return;
-
-          const toast = document.getElementById("toast");
-          if (toast) {
-            toast.textContent = "انقر فوق أية نقطة في اللوحة أو الصورة لالتقاط اللون";
-            toast.classList.add("show");
-            setTimeout(() => toast.classList.remove("show"), 3000);
-          }
-
-          const onPick = (evt) => {
-            evt.preventDefault();
-            evt.stopPropagation();
-            window.removeEventListener("pointerdown", onPick, true);
-
-            try {
-              const xml = new XMLSerializer().serializeToString(svgCanvas);
-              const blob = new Blob([xml], { type: "image/svg+xml;charset=utf-8" });
-              const url = URL.createObjectURL(blob);
-              const img = new Image();
-              img.crossOrigin = "anonymous";
-              img.onload = () => {
-                const off = document.createElement("canvas");
-                off.width = svgCanvas.clientWidth || 1600;
-                off.height = svgCanvas.clientHeight || 1000;
-                const oCtx = off.getContext("2d");
-                oCtx.drawImage(img, 0, 0, off.width, off.height);
-                URL.revokeObjectURL(url);
-
-                const rect = svgCanvas.getBoundingClientRect();
-                const px = Math.floor(evt.clientX - rect.left);
-                const py = Math.floor(evt.clientY - rect.top);
-                const pixel = oCtx.getImageData(px, py, 1, 1).data;
-                const hex = "#" + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1).toUpperCase();
-
-                const hsv = hexToHsv(hex);
-                activeHue = hsv.h;
-                activeSat = hsv.s;
-                activeVal = hsv.v;
-                applyColor(hex, true);
-                showConceptsWheel();
-              };
-              img.src = url;
-            } catch {
-              showConceptsWheel();
-            }
-          };
-
-          window.addEventListener("pointerdown", onPick, { capture: true, once: true });
-        }
+      eyeBtn.addEventListener("click", () => {
+        triggerEyedropperDirectly();
       });
     }
 
@@ -510,7 +444,91 @@
     }
   }
 
+  async function triggerEyedropperDirectly() {
+    // Dismiss any other open modals
+    if (typeof window.rasemCloseAllModals === "function") {
+      window.rasemCloseAllModals();
+    }
+    hideConceptsWheel();
+
+    const toast = document.getElementById("toast");
+    const showToast = (msg) => {
+      if (!toast) return;
+      toast.textContent = msg;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2800);
+    };
+
+    if (window.EyeDropper) {
+      try {
+        showToast("أداة القطارة نشطة: انقر لاختيار لون من أي مكان");
+        const eye = new window.EyeDropper();
+        const res = await eye.open();
+        if (res?.sRGBHex) {
+          const hsv = hexToHsv(res.sRGBHex);
+          activeHue = hsv.h;
+          activeSat = hsv.s;
+          activeVal = hsv.v;
+          applyColor(res.sRGBHex, true);
+          showToast(`تم اختيار اللون: ${res.sRGBHex}`);
+        }
+      } catch {
+        // User canceled or pressed ESC
+      }
+      return;
+    }
+
+    // Fallback Canvas Eyedropper
+    const svgCanvas = document.getElementById("drawingCanvas");
+    if (!svgCanvas) return;
+
+    showToast("أداة القطارة: انقر فوق أي عنصر في اللوحة لاقتطاف لونه");
+
+    const onPick = (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      window.removeEventListener("pointerdown", onPick, true);
+
+      try {
+        const xml = new XMLSerializer().serializeToString(svgCanvas);
+        const blob = new Blob([xml], { type: "image/svg+xml;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          const off = document.createElement("canvas");
+          off.width = svgCanvas.clientWidth || 1600;
+          off.height = svgCanvas.clientHeight || 1000;
+          const oCtx = off.getContext("2d");
+          oCtx.drawImage(img, 0, 0, off.width, off.height);
+          URL.revokeObjectURL(url);
+
+          const rect = svgCanvas.getBoundingClientRect();
+          const px = Math.floor(evt.clientX - rect.left);
+          const py = Math.floor(evt.clientY - rect.top);
+          const pixel = oCtx.getImageData(px, py, 1, 1).data;
+          const hex = "#" + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1).toUpperCase();
+
+          const hsv = hexToHsv(hex);
+          activeHue = hsv.h;
+          activeSat = hsv.s;
+          activeVal = hsv.v;
+          applyColor(hex, true);
+          showToast(`تم التقاط اللون: ${hex}`);
+        };
+        img.src = url;
+      } catch (e) {
+        console.warn("Eyedropper fallback failed", e);
+      }
+    };
+
+    window.addEventListener("pointerdown", onPick, { capture: true, once: true });
+  }
+
   function showConceptsWheel() {
+    if (typeof window.rasemCloseAllModals === "function") {
+      window.rasemCloseAllModals();
+    }
     initConceptsWheelUI();
     const container = $("conceptsWheelContainer");
     if (!container) return;
@@ -524,12 +542,6 @@
     isWheelExpanded = true;
     updateHarmonies();
     renderRecentColors();
-
-    const canvas = $("conceptsCanvas");
-    if (canvas) {
-      const event = new Event("pointerdown");
-      // triggers redraw
-    }
   }
 
   function hideConceptsWheel() {
@@ -547,7 +559,7 @@
     }
   }
 
-  // Bind Open button with click and LONG-PRESS support
+  // Bind Open button with click and LONG-PRESS shortcut for Eyedropper
   if (openBtn) {
     let pressTimer = null;
     let isLongPress = false;
@@ -556,14 +568,15 @@
       isLongPress = false;
       pressTimer = setTimeout(() => {
         isLongPress = true;
-        showConceptsWheel();
-      }, 350); // 350ms long-press triggers Concepts radial wheel
+        try { if (navigator.vibrate) navigator.vibrate(40); } catch {}
+        triggerEyedropperDirectly();
+      }, 380); // 380ms long-press activates Eyedropper directly
     });
 
     openBtn.addEventListener("pointerup", () => {
       clearTimeout(pressTimer);
       if (!isLongPress) {
-        // Normal click also toggles
+        // Normal click opens/toggles the Concepts color wheel
         toggleConceptsWheel();
       }
     });
@@ -584,6 +597,7 @@
     open: showConceptsWheel,
     close: hideConceptsWheel,
     toggle: toggleConceptsWheel,
+    triggerEyedropper: triggerEyedropperDirectly,
     setColor: (hex) => applyColor(hex, true)
   };
 

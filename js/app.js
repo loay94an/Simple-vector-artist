@@ -128,6 +128,13 @@ export class RasemApplication {
 
     this.elements = null;
 
+    let savedPan = true;
+    try {
+      savedPan = localStorage.getItem("rasem_two_finger_pan") !== "false";
+    } catch {}
+    this.twoFingerPanEnabled = savedPan;
+    this.inMultitouchSession = false;
+
     RasemApplication.instance = this;
   }
 
@@ -471,6 +478,10 @@ export class RasemApplication {
         },
 
         pointerCount: count => {
+          if (count === 0) {
+            this.inMultitouchSession = false;
+            this.pointerGesture = null;
+          }
           this.emit("rasem:pointercount", {
             count
           });
@@ -482,7 +493,7 @@ export class RasemApplication {
   handlePointerDown(event) {
     if (this.destroyed) return;
 
-    if (this.pointerGesture) return;
+    if (this.pointerGesture || this.inMultitouchSession) return;
 
     this.modules.tools.handleDown(event);
   }
@@ -490,11 +501,15 @@ export class RasemApplication {
   handlePointerMove(event) {
     if (this.destroyed) return;
 
+    if (this.pointerGesture || this.inMultitouchSession) return;
+
     this.modules.tools.handleMove(event);
   }
 
   handlePointerUp(event) {
     if (this.destroyed) return;
+
+    if (this.pointerGesture || this.inMultitouchSession) return;
 
     this.modules.tools.handleUp(event);
 
@@ -508,17 +523,21 @@ export class RasemApplication {
   }
 
   // =======================================================
-  // MULTITOUCH / PINCH ZOOM
+  // MULTITOUCH / PINCH ZOOM & TWO-FINGER PAN
   // =======================================================
 
   handleMultitouchStart(pointers) {
     if (this.destroyed) return;
 
-    if (this.modules.engine.drawing) {
+    this.inMultitouchSession = true;
+
+    // إلغاء أي خط رسم أو تحديد بدأه الإصبع الأول فور ملامسة الإصبع الثاني
+    if (this.modules.engine?.drawing) {
       this.modules.engine.cancel();
     }
+    this.modules.tools?.handleCancel?.();
 
-    if (pointers.length < 2) {
+    if (!Array.isArray(pointers) || pointers.length < 2) {
       this.pointerGesture = null;
       return;
     }
@@ -528,7 +547,6 @@ export class RasemApplication {
 
     this.pointerGesture = {
       distance: distance(first, second),
-
       center: midpoint(first, second)
     };
   }
@@ -567,12 +585,25 @@ export class RasemApplication {
       return;
     }
 
+    // 1. تحريك اللوحة بإصبعين (Two-Finger Pan)
+    // يتم التحريك إذا كان وضع التحريك بإصبعين مفعلاً أو إذا كانت أداة اليد نشطة
+    if (this.twoFingerPanEnabled || this.modules.tools?.activeToolName === "hand") {
+      const dx = nextCenter.x - this.pointerGesture.center.x;
+      const dy = nextCenter.y - this.pointerGesture.center.y;
+
+      if (Math.abs(dx) > 0.05 || Math.abs(dy) > 0.05) {
+        this.modules.camera.panScreen(dx, dy);
+      }
+    }
+
+    // 2. التقريب والإبعاد بإصبعين (Pinch Zoom)
     const factor =
       nextDistance / this.pointerGesture.distance;
 
     if (
       Number.isFinite(factor) &&
-      factor > 0
+      factor > 0 &&
+      Math.abs(factor - 1) > 0.001
     ) {
       this.modules.camera.zoomAt(
         factor,
@@ -589,6 +620,11 @@ export class RasemApplication {
 
   handleMultitouchEnd() {
     this.pointerGesture = null;
+
+    if (this.modules.engine?.drawing) {
+      this.modules.engine.cancel();
+    }
+    this.modules.tools?.handleCancel?.();
 
     this.scheduleAutosave();
   }
@@ -793,6 +829,63 @@ export class RasemApplication {
       this.cleanupCallbacks.push(() => {
         exportDialog.removeEventListener("click", exportHandler);
       });
+    }
+
+    // Two-Finger Pan Settings Checkbox listener
+    const twoFingerPanCheckbox = getElement("twoFingerPanCheckbox");
+    if (twoFingerPanCheckbox) {
+      twoFingerPanCheckbox.checked = this.twoFingerPanEnabled;
+      const panToggleHandler = (e) => {
+        this.setTwoFingerPan(e.target.checked, true);
+      };
+      twoFingerPanCheckbox.addEventListener("change", panToggleHandler);
+      this.cleanupCallbacks.push(() => {
+        twoFingerPanCheckbox.removeEventListener("change", panToggleHandler);
+      });
+    }
+
+    this.updateTwoFingerPanUI();
+  }
+
+  setTwoFingerPan(enabled, announce = true) {
+    this.twoFingerPanEnabled = Boolean(enabled);
+    try {
+      localStorage.setItem("rasem_two_finger_pan", String(this.twoFingerPanEnabled));
+    } catch {}
+    this.updateTwoFingerPanUI();
+    if (announce) {
+      if (this.twoFingerPanEnabled) {
+        this.showToast("تم تفعيل التحريك بإصبعين: يمكنك الآن الرسم بحرية والتحريك بإصبعين ✌");
+      } else {
+        this.showToast("تم تفعيل تحريك الشاشة بإصبع واحد (وضع اليد التقليدي)");
+      }
+    }
+    window.dispatchEvent(new CustomEvent("rasem:two-finger-pan-changed", {
+      detail: { enabled: this.twoFingerPanEnabled }
+    }));
+    return this.twoFingerPanEnabled;
+  }
+
+  toggleTwoFingerPan(announce = true) {
+    return this.setTwoFingerPan(!this.twoFingerPanEnabled, announce);
+  }
+
+  updateTwoFingerPanUI() {
+    const checkbox = document.getElementById("twoFingerPanCheckbox");
+    if (checkbox) {
+      checkbox.checked = this.twoFingerPanEnabled;
+    }
+
+    const handButton = document.querySelector('[data-tool="hand"]');
+    if (handButton) {
+      handButton.classList.toggle("two-finger-pan-enabled", this.twoFingerPanEnabled);
+      const badge = handButton.querySelector(".hand-mode-badge");
+      if (badge) {
+        badge.remove();
+      }
+      handButton.title = this.twoFingerPanEnabled
+        ? "تحريك اللوحة (التحريك بإصبعين مفعّل أثناء الرسم)"
+        : "تحريك اللوحة (نقرة: تحريك باليد / ضغطة طويلة: تفعيل التحريك بإصبعين مع الرسم)";
     }
   }
 
@@ -1018,7 +1111,17 @@ export class RasemApplication {
           this.modules.document.addElement(element);
           this.modules.renderer.render(this.modules.document);
           this.scheduleAutosave();
-          this.showToast("تم إدراج ملف SVG بنجاح");
+
+          try {
+            this.setTool("selector");
+            const selector = this.modules.tools?.get("selector");
+            if (selector) {
+              selector.selectedIds = new Set([element.id]);
+              selector.renderOverlay();
+            }
+          } catch {}
+
+          this.showToast("تم إدراج ملف SVG بنجاح - يمكنك تحريكه وتكبيره وتصغيره");
         };
         img.src = dataUrl;
         return true;
@@ -1053,7 +1156,17 @@ export class RasemApplication {
           this.modules.document.addElement(element);
           this.modules.renderer.render(this.modules.document);
           this.scheduleAutosave();
-          this.showToast(isPdf ? "تم إدراج مستند PDF بنجاح" : "تم إدراج الصورة بنجاح");
+
+          try {
+            this.setTool("selector");
+            const selector = this.modules.tools?.get("selector");
+            if (selector) {
+              selector.selectedIds = new Set([element.id]);
+              selector.renderOverlay();
+            }
+          } catch {}
+
+          this.showToast(isPdf ? "تم إدراج مستند PDF بنجاح" : "تم إدراج الصورة بنجاح - يمكنك تحريكها وتكبيرها وتصغيرها");
         };
         img.src = dataUrl;
       };
@@ -1134,14 +1247,20 @@ export class RasemApplication {
   applyTheme(theme) {
     const light = theme === "light";
 
-    document.body.classList.toggle(
-      "light",
-      light
-    );
+    document.body.classList.toggle("light", light);
+    document.body.classList.toggle("dark", !light);
 
     if (this.elements.themeButton) {
-      this.elements.themeButton.textContent =
-        light ? "☾" : "☼";
+      this.elements.themeButton.textContent = light ? "☾" : "☼";
+    }
+
+    const bg = document.getElementById("canvasBackground");
+    if (bg) {
+      bg.setAttribute("fill", light ? "#ffffff" : "#121212");
+    }
+    const board = document.getElementById("canvasBoard");
+    if (board) {
+      board.style.backgroundColor = light ? "#ffffff" : "#121212";
     }
   }
 
@@ -1348,6 +1467,12 @@ export class RasemApplication {
         this.modules.engine.setSettings(settings);
       },
 
+      setTwoFingerPan: (enabled, announce) => this.setTwoFingerPan(enabled, announce),
+      toggleTwoFingerPan: (announce) => this.toggleTwoFingerPan(announce),
+      get twoFingerPanEnabled() { return this.twoFingerPanEnabled; },
+      updateTwoFingerPanUI: () => this.updateTwoFingerPanUI(),
+      tools: this.modules.tools,
+
       destroy: () => this.destroy()
     };
   }
@@ -1443,6 +1568,7 @@ function startRasem() {
   rasemApp = createRasem();
 
   window.rasem = rasemApp.api;
+  window.rasemApp = rasemApp;
 
   return rasemApp;
 }
@@ -1455,6 +1581,7 @@ function stopRasem() {
   rasemApp = null;
 
   delete window.rasem;
+  delete window.rasemApp;
 }
 
 if (typeof window !== "undefined") {

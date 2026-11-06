@@ -33,6 +33,7 @@ const ALLOWED_TAGS = new Set([
   "polygon",
   "polyline",
   "image",
+  "text",
   "g"
 ]);
 
@@ -40,7 +41,8 @@ const GEOMETRY_ATTRIBUTES = new Set([
   "d", "x", "y", "x1", "y1", "x2", "y2",
   "cx", "cy", "r", "rx", "ry",
   "width", "height", "points",
-  "href", "xlink:href", "preserveAspectRatio"
+  "href", "xlink:href", "preserveAspectRatio",
+  "fontSize", "fontFamily"
 ]);
 
 /* =========================================================
@@ -803,8 +805,27 @@ export class Scene {
   updateNode(node, element) {
     node.dataset.id = element.id;
 
-    this.applyGeometry(node, element);
-    this.applyStyle(node, element);
+    if (element.type === "text" || node.tagName.toLowerCase() === "text") {
+      node.textContent = element.text || element.geometry?.text || "";
+      const gx = element.geometry?.x ?? 0;
+      const gy = element.geometry?.y ?? 0;
+      node.setAttribute("x", String(gx));
+      node.setAttribute("y", String(gy));
+      const fsize = element.style?.fontSize || element.style?.size || 24;
+      node.setAttribute("font-size", String(fsize));
+      node.setAttribute("font-family", element.style?.fontFamily || "'Cairo', 'Segoe UI', system-ui, sans-serif");
+      node.setAttribute("font-weight", String(element.style?.fontWeight || "600"));
+      const col = element.style?.color || element.style?.fill || "#111111";
+      node.setAttribute("fill", col);
+      node.setAttribute("stroke", "none");
+      node.setAttribute("direction", "rtl");
+      node.setAttribute("xml:space", "preserve");
+      node.style.userSelect = "none";
+      node.style.cursor = "move";
+    } else {
+      this.applyGeometry(node, element);
+      this.applyStyle(node, element);
+    }
 
     node.setAttribute(
       "visibility",

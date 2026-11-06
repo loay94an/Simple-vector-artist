@@ -678,6 +678,20 @@ export class HitTesting {
       }
     }
 
+    // Text elements hit testing
+    if (element.type === "text" || element.svgTag === "text") {
+      const tx = EngineUtils.number(geometry.x, 0);
+      const ty = EngineUtils.number(geometry.y, 0);
+      const fontSize = EngineUtils.number(element.style?.fontSize || element.style?.size, 24);
+      const textLen = (element.text || "").length || 4;
+      const tw = textLen * fontSize * 0.65;
+      const th = fontSize * 1.2;
+      const closestX = EngineUtils.clamp(point.x, tx, tx + tw);
+      const closestY = EngineUtils.clamp(point.y, ty - th, ty);
+      const dist = EngineUtils.distance(point, { x: closestX, y: closestY });
+      return Math.max(0, dist);
+    }
+
     // Rect, Square, Image, Circle bounding box
     const x = EngineUtils.number(geometry.x, 0);
     const y = EngineUtils.number(geometry.y, 0);

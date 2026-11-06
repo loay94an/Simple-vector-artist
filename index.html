@@ -194,6 +194,21 @@
             </div>
             <button id="openLayersBtn" type="button" class="header-action-btn" style="flex-shrink:0;">الطبقات</button>
           </div>
+
+          <!-- Two-Finger Pan Toggle Option (التحريك بإصبعين مع استمرار أدوات الرسم) -->
+          <div class="settings-menu-item" style="border: 1px solid var(--border); background: var(--surface-2);">
+            <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1 1 0;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" style="flex-shrink:0;"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
+              <div style="text-align:right;">
+                <strong style="display:block; font-size:13px; color:var(--text);">التحريك بإصبعين أثناء الرسم</strong>
+                <span style="font-size:11px; color:var(--text-muted); display:block;">حرّك الشاشة بإصبعين دون مقاطعة أدوات القلم والرسم الهندسي</span>
+              </div>
+            </div>
+            <label class="toggle-switch-wrapper" title="تفعيل أو تعطيل التحريك بإصبعين أثناء استخدام أدوات الرسم">
+              <input type="checkbox" id="twoFingerPanCheckbox" checked>
+              <span class="toggle-switch-slider"></span>
+            </label>
+          </div>
         </div>
       </div>
     </div>
@@ -278,9 +293,8 @@
         </button>
 
         <!-- Smart Dual Eraser (ممحاة ذكية مزدوجة) -->
-        <button class="tool" data-tool="eraser" id="eraserToolBtn" title="الممحاة (نقرة: تبديل النمط / ضغطة طويلة: الإعدادات)">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
-          <span class="eraser-badge" id="eraserBadge">جزئي</span>
+        <button class="tool" data-tool="eraser" id="eraserToolBtn" title="الممحاة (نقرة: تبديل النمط بين جزئي وخط / ضغطة طويلة: الإعدادات)">
+          <svg id="eraserToolIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
         </button>
 
         <!-- Geometry Shapes Menu Button -->
@@ -291,13 +305,18 @@
           </button>
         </div>
 
+        <!-- Text Tool (كتابة نصوص وملاحظات) -->
+        <button class="tool" data-tool="text" id="textToolBtn" title="أداة الكتابة والنصوص والملاحظات (txt)">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+        </button>
+
         <!-- Hand pan -->
-        <button class="tool" data-tool="hand" title="تحريك اللوحة">
+        <button class="tool" data-tool="hand" id="handToolBtn" title="تحريك اللوحة (نقرة: تحريك باليد / ضغطة طويلة: تفعيل التحريك بإصبعين مع الرسم)">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
         </button>
 
         <!-- Concepts Color Wheel Trigger -->
-        <button id="colorMenuBtn" class="tool color-menu-toggle" type="button" title="عجلة الألوان Concepts (انقر أو اضغط مطولاً)">
+        <button id="colorMenuBtn" class="tool color-menu-toggle" type="button" title="عجلة الألوان Concepts (نقرة: العجلة / ضغطة مطولة: القطارة)">
           <span class="color-dot" id="colorMenuPreview" style="background-color: #2563EB;"></span>
         </button>
 
@@ -418,21 +437,53 @@
         </button>
       </div>
 
-      <!-- MODERN FLOATING LAYERS PANEL -->
-      <aside id="layersPanel" class="layers-floating-panel" hidden>
-        <div class="layers-panel-header">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.9a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>
-            <strong>الطبقات (Layers)</strong>
+      <!-- MODERN CENTERED LAYERS MODAL -->
+      <div id="layersModalBackdrop" class="modal-overlay-wrapper" hidden>
+        <aside id="layersPanel" class="layers-floating-panel modal-box" role="dialog" aria-label="إدارة الطبقات" hidden>
+          <div class="layers-panel-header">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.9a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>
+              <strong>الطبقات (Layers)</strong>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <button id="addLayerBtn" class="header-action-btn primary" type="button" title="إضافة طبقة جديدة" style="height:28px; padding:0 8px; font-size:12px;">+ جديدة</button>
+              <button id="closeLayersPanelBtn" type="button" class="concepts-close-btn" title="إغلاق">✕</button>
+            </div>
           </div>
-          <div style="display:flex; align-items:center; gap:6px;">
-            <button id="addLayerBtn" class="header-action-btn primary" type="button" title="إضافة طبقة جديدة" style="height:28px; padding:0 8px; font-size:12px;">+ جديدة</button>
-            <button id="closeLayersPanelBtn" type="button" class="concepts-close-btn" title="إغلاق">✕</button>
+
+          <div id="layerList" class="layers-list" style="max-height:360px; overflow-y:auto; padding:4px;"></div>
+        </aside>
+      </div>
+
+      <!-- TEXT INPUT MODAL & BACKDROP -->
+      <div id="textInputModalBackdrop" class="modal-overlay-wrapper" hidden>
+        <div id="textInputModal" class="modal-box" role="dialog" aria-label="إدراج نص جديد" hidden>
+          <div class="settings-menu-header">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+              <strong>أداة الكتابة وإدراج النصوص (TXT)</strong>
+            </div>
+            <button id="cancelTextInputBtn" type="button" class="concepts-close-btn" aria-label="إغلاق">✕</button>
+          </div>
+          <div style="padding:16px 0; display:flex; flex-direction:column; gap:12px;">
+            <label for="textToolInput" style="font-size:12px; font-weight:600; color:var(--text);">نص الملاحظة أو العبارة:</label>
+            <textarea id="textToolInput" rows="3" placeholder="اكتب النص هنا..." style="width:100%; border-radius:10px; border:1px solid var(--border); background:var(--surface-2); color:var(--text); padding:10px; font-size:14px; box-sizing:border-box; outline:none; font-family:inherit; resize:vertical;"></textarea>
+
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+              <label for="textToolFontSize" style="font-size:12px; font-weight:600; color:var(--text); white-space:nowrap;">حجم الخط:</label>
+              <div style="display:flex; align-items:center; gap:8px; flex:1;">
+                <input type="range" id="textToolFontSize" min="12" max="140" step="2" value="32" style="flex:1;">
+                <span id="textToolFontSizeVal" style="font-size:12px; font-weight:700; min-width:44px; text-align:left;">32px</span>
+              </div>
+            </div>
+
+            <div style="display:flex; gap:8px; margin-top:8px;">
+              <button type="button" id="confirmTextInputBtn" class="header-action-btn primary" style="flex:1; height:38px; justify-content:center; font-weight:700;">إدراج على اللوحة</button>
+              <button type="button" id="abortTextInputBtn" class="header-action-btn" style="flex:1; height:38px; justify-content:center;">إلغاء</button>
+            </div>
           </div>
         </div>
-
-        <div id="layerList" class="layers-list" style="max-height:360px; overflow-y:auto; padding:4px;"></div>
-      </aside>
+      </div>
 
     </main>
 
@@ -624,6 +675,19 @@
   <!-- INLINE CONTROLLERS FOR EXPORT, LAYERS & SELECTION -->
   <script>
   (() => {
+    // Universal close all popups to eliminate overlapping dialogs
+    window.rasemCloseAllModals = function() {
+      document.querySelectorAll(".modal-overlay-wrapper").forEach(w => w.hidden = true);
+      document.querySelectorAll(".modal-box").forEach(m => m.hidden = true);
+      const layersPanel = document.getElementById("layersPanel");
+      if (layersPanel) layersPanel.hidden = true;
+      document.getElementById("topLayersBtn")?.classList.remove("active");
+      document.getElementById("settingsMenuBtn")?.setAttribute("aria-expanded", "false");
+      const shapesBtn = document.getElementById("shapesMenuToggleBtn");
+      if (shapesBtn) shapesBtn.setAttribute("aria-expanded", "false");
+      document.getElementById("conceptsWheelContainer")?.classList.remove("open");
+    };
+
     // 0. Settings Menu & Save Modal Controllers
     const settingsMenuBtn = document.getElementById("settingsMenuBtn");
     const settingsMenu = document.getElementById("settingsMenu");
@@ -638,6 +702,7 @@
 
     function openSettings() {
       if (!settingsMenu) return;
+      window.rasemCloseAllModals();
       settingsMenu.hidden = false;
       if (settingsBackdrop) settingsBackdrop.hidden = false;
       settingsMenuBtn?.setAttribute("aria-expanded", "true");
@@ -665,6 +730,13 @@
       if (e.target === settingsBackdrop) closeSettings();
     });
     settingsMenu?.addEventListener("click", (e) => e.stopPropagation());
+
+    // Two-finger pan setting sync
+    const twoFingerPanCheckbox = document.getElementById("twoFingerPanCheckbox");
+    twoFingerPanCheckbox?.addEventListener("change", (e) => {
+      const app = window.rasemApp || window.rasem;
+      app?.setTwoFingerPan?.(e.target.checked, true);
+    });
 
     // Save document action
     saveBtn?.addEventListener("click", () => {
@@ -714,7 +786,7 @@
     const newCanvasCancelBtn = document.getElementById("newCanvasCancelBtn");
 
     function openNewCanvasModal() {
-      closeSettings();
+      window.rasemCloseAllModals();
       if (newCanvasModal) newCanvasModal.hidden = false;
       if (newCanvasBackdrop) newCanvasBackdrop.hidden = false;
     }
@@ -760,25 +832,36 @@
     // 1. Dedicated Layers Button and Panel Toggle
     const topLayersBtn = document.getElementById("topLayersBtn");
     const layersPanel = document.getElementById("layersPanel");
+    const layersBackdrop = document.getElementById("layersModalBackdrop");
     const closeLayersPanelBtn = document.getElementById("closeLayersPanelBtn");
 
     function toggleLayers() {
       if (!layersPanel) return;
       const willShow = layersPanel.hidden;
-      layersPanel.hidden = !willShow;
-      topLayersBtn?.classList.toggle("active", willShow);
+      window.rasemCloseAllModals();
+      if (willShow) {
+        layersPanel.hidden = false;
+        if (layersBackdrop) layersBackdrop.hidden = false;
+        topLayersBtn?.classList.add("active");
+      }
     }
 
     topLayersBtn?.addEventListener("click", toggleLayers);
+    layersBackdrop?.addEventListener("click", (e) => {
+      if (e.target === layersBackdrop) {
+        if (layersPanel) layersPanel.hidden = true;
+        if (layersBackdrop) layersBackdrop.hidden = true;
+        topLayersBtn?.classList.remove("active");
+      }
+    });
     closeLayersPanelBtn?.addEventListener("click", () => {
       if (layersPanel) layersPanel.hidden = true;
+      if (layersBackdrop) layersBackdrop.hidden = true;
       topLayersBtn?.classList.remove("active");
     });
 
     document.getElementById("openLayersBtn")?.addEventListener("click", () => {
-      closeSettings();
-      if (layersPanel) layersPanel.hidden = false;
-      topLayersBtn?.classList.add("active");
+      toggleLayers();
     });
 
     // 2. Add Layer button in Header
@@ -810,16 +893,24 @@
       selector?.clearSelection?.();
     });
 
-    // 4. Eraser Mode badge indicator
+    // 4. Dynamic Eraser Icon (changes SVG icon directly according to mode)
     window.addEventListener("rasem:eraser-mode", e => {
       const mode = e.detail?.mode || "partial";
-      const badge = document.getElementById("eraserBadge");
-      if (badge) {
-        badge.textContent = mode === "partial" ? "جزئي" : "خط";
+      const icon = document.getElementById("eraserToolIcon");
+      if (icon) {
+        if (mode === "stroke") {
+          // Whole stroke slice icon
+          icon.innerHTML = `<path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><line x1="3" y1="3" x2="21" y2="21" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>`;
+          icon.setAttribute("title", "ممحاة الخط بالكامل");
+        } else {
+          // Partial eraser icon
+          icon.innerHTML = `<path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/><rect x="14" y="4" width="5" height="5" stroke-dasharray="1 1" opacity="0.6"/>`;
+          icon.setAttribute("title", "ممحاة عادية جزئية");
+        }
       }
     });
 
-    // 4b. Sync tool button active highlights (e.g. when Lasso finishes and transfers to Selector)
+    // 4b. Sync tool button active highlights
     window.addEventListener("rasem:tool-changed", e => {
       const toolName = e.detail?.tool;
       if (!toolName) return;
@@ -828,14 +919,32 @@
       });
     });
 
-    // 5. Theme Toggle
+    // 5. Theme Toggle & Canvas Black Background Sync
+    function syncCanvasBackgroundTheme(isDark) {
+      const bg = document.getElementById("canvasBackground");
+      if (bg) {
+        bg.setAttribute("fill", isDark ? "#121212" : "#ffffff");
+      }
+      const board = document.getElementById("canvasBoard");
+      if (board) {
+        board.style.backgroundColor = isDark ? "#121212" : "#ffffff";
+      }
+    }
+
     const themeBtn = document.getElementById("themeToggleBtn");
     themeBtn?.addEventListener("click", () => {
-      const isLight = document.body.classList.contains("light");
-      document.body.classList.toggle("light", !isLight);
-      document.body.classList.toggle("dark", isLight);
-      themeBtn.textContent = isLight ? "☾" : "☼";
+      const isCurrentlyLight = document.body.classList.contains("light");
+      const nextIsDark = isCurrentlyLight;
+      document.body.classList.toggle("light", !nextIsDark);
+      document.body.classList.toggle("dark", nextIsDark);
+      themeBtn.textContent = nextIsDark ? "☾" : "☼";
+      syncCanvasBackgroundTheme(nextIsDark);
     });
+
+    // Initial dark theme check
+    if (document.body.classList.contains("dark")) {
+      syncCanvasBackgroundTheme(true);
+    }
 
     // 6. Export Dialog Controller
     const exportDialog = document.getElementById("exportDialog");
@@ -853,12 +962,9 @@
 
     function openExport() {
       if (exportDialog) {
+        window.rasemCloseAllModals();
         exportDialog.hidden = false;
         if (exportModalBackdrop) exportModalBackdrop.hidden = false;
-        const setMenu = document.getElementById("settingsMenu");
-        if (setMenu) setMenu.hidden = true;
-        const setBackdrop = document.getElementById("settingsModalBackdrop");
-        if (setBackdrop) setBackdrop.hidden = true;
       }
     }
 
