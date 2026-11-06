@@ -1464,6 +1464,11 @@ export class ToolManager {
       detail: { tool: name }
     }));
 
+    if (name !== "hand" && name !== "selector" && name !== "lasso") {
+      window.rasem = window.rasem || {};
+      window.rasem.lastDrawingTool = name;
+    }
+
     return true;
   }
 

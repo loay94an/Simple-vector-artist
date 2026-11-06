@@ -297,8 +297,11 @@
   }
 
   if (backdrop) {
-    backdrop.addEventListener("click", hide);
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) hide();
+    });
   }
+  popup.addEventListener("click", (e) => e.stopPropagation());
 
   // Custom PNG brush upload & remove
   const pngInput = document.getElementById("customBrushPNG");
@@ -454,6 +457,13 @@
       const tool = button.dataset.tool;
       if (tool === "shapes") {
         window.rasemShapesUI?.open?.();
+      } else if (tool === "hand") {
+        const lastTool = window.rasem?.lastDrawingTool || "pen";
+        window.rasem?.tools?.activate?.(lastTool);
+        window.rasem?.showToast?.("تم تفعيل وضع الرسم مع الحركة الحرة معاً");
+        document.querySelectorAll("[data-tool]").forEach(b => {
+          b.classList.toggle("active", b.dataset.tool === lastTool);
+        });
       } else if (names[tool]) {
         open(tool);
       }

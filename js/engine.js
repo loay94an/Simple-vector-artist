@@ -1243,163 +1243,56 @@ export class DrawingEngine {
       return true;
     }
 
-
-    // Partial vector eraser: clip actual line segments against
-    // the eraser circle, including interpolated boundary points.
-
+    // النمط الأول (الافتراضي): الممحاة العادية الجزئية (Partial Vector Segment Eraser)
     let modified = false;
     const elementsToRemove = [];
     const elementsToAdd = [];
 
     for (let elIdx = 0; elIdx < layer.elements.length; elIdx++) {
       const element = layer.elements[elIdx];
-
       if (!element || element.visible === false) continue;
 
       const dist = HitTesting.getElementDistance(element, point);
       if (dist > radius) continue;
 
       if (Array.isArray(element.points) && element.points.length > 0) {
-        const points = element.points;
-        const strokeRadius = radius +
-          EngineUtils.number(element.style?.size, 3) / 2;
+        const segments = [];
+        let currentSegment = [];
 
-        if (points.length === 1) {
-          if (EngineUtils.distance(points[0], point) <= strokeRadius) {
-            elementsToRemove.push(elIdx);
-            modified = true;
+        for (let i = 0; i < element.points.length; i++) {
+          const pt = element.points[i];
+          const d = Math.hypot(pt.x - point.x, pt.y - point.y);
+
+          if (d > radius) {
+            currentSegment.push(pt);
+          } else {
+            if (currentSegment.length > 0) {
+              segments.push(currentSegment);
+              currentSegment = [];
+            }
           }
+        }
+        if (currentSegment.length > 0) {
+          segments.push(currentSegment);
+        }
+
+        if (segments.length === 1 && segments[0].length === element.points.length) {
           continue;
         }
 
-        const segments = [];
-        let current = [];
-        let touched = false;
-
-        const pushPoint = (target, p) => {
-          const last = target[target.length - 1];
-
-          if (
-            !last ||
-            Math.hypot(last.x - p.x, last.y - p.y) > 0.000001
-          ) {
-            target.push(p);
-          }
-        };
-
-        const flush = () => {
-          if (current.length >= 2) {
-            segments.push(current);
-          }
-          current = [];
-        };
-
-        for (let i = 1; i < points.length; i++) {
-          const p1 = points[i - 1];
-          const p2 = points[i];
-
-          const dx = p2.x - p1.x;
-          const dy = p2.y - p1.y;
-
-          const fx = p1.x - point.x;
-          const fy = p1.y - point.y;
-
-          const A = dx * dx + dy * dy;
-
-          if (A === 0) {
-            if (Math.hypot(fx, fy) <= strokeRadius) {
-              touched = true;
-              flush();
-            } else {
-              pushPoint(current, p1);
-              pushPoint(current, p2);
-            }
-            continue;
-          }
-
-          const B = 2 * (fx * dx + fy * dy);
-          const C = fx * fx + fy * fy -
-            strokeRadius * strokeRadius;
-
-          const discriminant = B * B - 4 * A * C;
-
-          const cuts = [0, 1];
-
-          if (discriminant > 0) {
-            const root = Math.sqrt(discriminant);
-
-            const t1 = (-B - root) / (2 * A);
-            const t2 = (-B + root) / (2 * A);
-
-            if (t1 > 0 && t1 < 1) cuts.push(t1);
-            if (t2 > 0 && t2 < 1) cuts.push(t2);
-          }
-
-          cuts.sort((x, y) => x - y);
-
-          for (let j = 0; j < cuts.length - 1; j++) {
-            const t0 = cuts[j];
-            const t1 = cuts[j + 1];
-            const mid = (t0 + t1) / 2;
-
-            const mx = p1.x + dx * mid;
-            const my = p1.y + dy * mid;
-
-            const inside =
-              Math.hypot(mx - point.x, my - point.y) <
-              strokeRadius;
-
-            const from = {
-              ...p1,
-              x: p1.x + dx * t0,
-              y: p1.y + dy * t0
-            };
-
-            const to = {
-              ...p1,
-              x: p1.x + dx * t1,
-              y: p1.y + dy * t1
-            };
-
-            if (inside) {
-              touched = true;
-              flush();
-            } else {
-              if (
-                current.length &&
-                Math.hypot(
-                  current[current.length - 1].x - from.x,
-                  current[current.length - 1].y - from.y
-                ) > 0.000001
-              ) {
-                flush();
-              }
-
-              pushPoint(current, from);
-              pushPoint(current, to);
-            }
-          }
-        }
-
-        flush();
-
-        if (!touched) continue;
-
         elementsToRemove.push(elIdx);
 
-        for (const segment of segments) {
-          const newElement = EngineUtils.clone(element);
-
-          newElement.id = EngineUtils.createId("stroke");
-          newElement.points = segment;
-          newElement.path = this.buildPath(segment);
-
-          elementsToAdd.push(newElement);
+        for (const seg of segments) {
+          if (seg.length === 0) continue;
+          const newEl = EngineUtils.clone(element);
+          newEl.id = EngineUtils.createId("stroke");
+          newEl.points = seg;
+          newEl.path = this.buildPath(seg);
+          elementsToAdd.push(newEl);
         }
-
         modified = true;
       } else {
-        // Shapes and elements without vector points.
+        // Shapes or items without points array
         elementsToRemove.push(elIdx);
         modified = true;
       }
@@ -1407,18 +1300,18 @@ export class DrawingEngine {
 
     if (!modified) return false;
 
+    // Apply removals from end to start
     for (let i = elementsToRemove.length - 1; i >= 0; i--) {
       layer.elements.splice(elementsToRemove[i], 1);
     }
-
-    for (const newElement of elementsToAdd) {
-      layer.elements.push(newElement);
+    // Append split segments
+    for (const newEl of elementsToAdd) {
+      layer.elements.push(newEl);
     }
 
     this.changed = true;
     this.document.touch?.();
     this.renderer.renderActiveLayer(layer);
-
     return true;
   }
 

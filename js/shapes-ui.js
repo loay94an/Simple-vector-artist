@@ -273,7 +273,9 @@
   }
 
   if (backdrop) {
-    backdrop.addEventListener("click", close);
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) close();
+    });
   }
 
   if (applyBtn) {

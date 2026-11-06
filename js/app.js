@@ -722,22 +722,34 @@ export class RasemApplication {
     }
 
     const exportDialog = getElement("exportDialog");
+    const exportBackdrop = getElement("exportModalBackdrop");
 
-    this.bindClick(
-      getElement("exportBtn"),
-      () => {
-        if (!exportDialog) return;
+    const showExportModal = () => {
+      if (exportBackdrop) exportBackdrop.hidden = false;
+      if (exportDialog) exportDialog.hidden = false;
+    };
 
-        if (!exportDialog.open) {
-          exportDialog.showModal();
+    const hideExportModal = () => {
+      if (exportBackdrop) exportBackdrop.hidden = true;
+      if (exportDialog) exportDialog.hidden = true;
+    };
+
+    this.bindClick(getElement("exportBtn"), showExportModal);
+    this.bindClick(getElement("closeExportBtn"), hideExportModal);
+
+    if (exportBackdrop) {
+      exportBackdrop.addEventListener("click", event => {
+        if (event.target === exportBackdrop) {
+          hideExportModal();
         }
-      }
-    );
+      });
+    }
 
-    this.bindClick(
-      getElement("closeExportBtn"),
-      () => exportDialog?.close()
-    );
+    if (exportDialog) {
+      exportDialog.addEventListener("click", event => {
+        event.stopPropagation();
+      });
+    }
 
     if (exportDialog) {
       const exportHandler = async event => {
@@ -1329,6 +1341,8 @@ export class RasemApplication {
       setTool: tool => {
         return this.modules.tools.activate(tool);
       },
+
+      showToast: (msg, dur) => this.showToast(msg, dur),
 
       setSettings: settings => {
         this.modules.engine.setSettings(settings);

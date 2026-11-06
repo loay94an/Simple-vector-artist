@@ -1,8 +1,3 @@
-import { Capacitor } from "@capacitor/core";
-import { Filesystem, Directory } from "@capacitor/filesystem";
-import { Share } from "@capacitor/share";
-import { registerPlugin } from "@capacitor/core";
-
 
 /* =========================================================
    RASEM 2.0
@@ -71,47 +66,100 @@ function escapeXML(value) {
     .replace(/'/g, "&apos;");
 }
 
-
-const Downloads = registerPlugin("Downloads");
-
-async function downloadBlob(blob, filename) {
+export async function downloadBlob(blob, filename) {
   if (!(blob instanceof Blob)) {
     throw new TypeError("Invalid export Blob");
   }
 
-  if (
-    Capacitor.isNativePlatform() &&
-    Capacitor.getPlatform() === "android"
-  ) {
-    const dataUrl = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(
-        reader.error || new Error("تعذرت قراءة الملف")
-      );
-      reader.readAsDataURL(blob);
-    });
+  // Helper to determine mime and extension description
+  let description = "ملف تصدير";
+  const ext = filename.split(".").pop()?.toLowerCase() || "";
+  if (ext === "png") description = "صورة PNG عالية الدقة";
+  else if (ext === "svg") description = "رسم شعاعي SVG";
+  else if (ext === "pdf") description = "مستند PDF";
+  else if (ext === "rasem" || ext === "json") description = "مشروع رسم";
 
-    const base64 = String(dataUrl).split(",")[1];
+  // 1. File System Access API: Opens the system File Manager / Save Dialog
+  // allowing the user to choose the exact directory/folder and save the file.
+  if (typeof window.showSaveFilePicker === "function") {
+    try {
+      const acceptTypes = {};
+      acceptTypes[blob.type || "application/octet-stream"] = [`.${ext}`];
 
-    const saved = await Downloads.save({
-      filename,
-      data: base64,
-      mimeType: blob.type || "application/octet-stream"
-    });
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [
+          {
+            description,
+            accept: acceptTypes
+          }
+        ]
+      });
 
-    return !!saved?.uri;
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return true;
+    } catch (pickerErr) {
+      // If user deliberately pressed Cancel in the file manager, stop gracefully
+      if (pickerErr.name === "AbortError") {
+        return false;
+      }
+      console.info("showSaveFilePicker unsupported or blocked in this context, trying next export path", pickerErr);
+    }
   }
 
+  // 2. Android APK bridge check (e.g. Capacitor, Cordova, custom JS interface)
+  if (window.AndroidBridge && typeof window.AndroidBridge.saveFile === "function") {
+    try {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result.split(",")[1];
+        window.AndroidBridge.saveFile(base64, filename, blob.type);
+      };
+      reader.readAsDataURL(blob);
+      return true;
+    } catch (e) {
+      console.warn("AndroidBridge save failed, falling back", e);
+    }
+  }
+
+  // 3. Web Share API with Files support (Opens Android native file save / app picker on mobile)
+  if (navigator.share && navigator.canShare) {
+    try {
+      const file = new File([blob], filename, { type: blob.type, lastModified: Date.now() });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: filename
+        });
+        return true;
+      }
+    } catch (shareErr) {
+      if (shareErr.name === "AbortError") {
+        return false;
+      }
+      console.info("Web Share not completed, proceeding with standard download", shareErr);
+    }
+  }
+
+  // 4. Standard Fallback: Anchor download
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
+  link.style.display = "none";
   link.href = url;
   link.download = filename;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+
   document.body.appendChild(link);
   link.click();
-  link.remove();
 
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  setTimeout(() => {
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, 1500);
+
   return true;
 }
 
@@ -844,37 +892,6 @@ export function calculateContentBounds(documentData, padding = 30) {
 // 5. SVG EXPORT
 // =========================================================
 
-
-// =========================================================
-// SAFE LARGE EXPORT SCALING
-// =========================================================
-
-function getSafeExportScale(bounds, requestedScale = 2, maxPixels = 16000000) {
-  const width = Math.max(1, Number(bounds.width) || 1);
-  const height = Math.max(1, Number(bounds.height) || 1);
-
-  const requested = Math.max(
-    0.01,
-    Math.min(8, Number(requestedScale) || 2)
-  );
-
-  const maxDimension = 16384;
-
-  const dimensionScale = Math.min(
-    maxDimension / width,
-    maxDimension / height
-  );
-
-  const pixelScale = Math.sqrt(
-    maxPixels / width / height
-  );
-
-  return Math.max(
-    0.000001,
-    Math.min(requested, dimensionScale, pixelScale)
-  );
-}
-
 export class SVGExport {
 
   static getDimensions(documentData, options = {}) {
@@ -911,6 +928,7 @@ export class SVGExport {
       "ellipse",
       "polygon",
       "polyline",
+      "image",
       "g"
     ]);
 
@@ -920,51 +938,44 @@ export class SVGExport {
   static renderElement(element) {
     if (!isObject(element)) return "";
 
-    const style = isObject(element.style) ? element.style : {};
-    const geometry = isObject(element.geometry) ? element.geometry : {};
+    const style = element.style || {};
+    const geometry = element.geometry || {};
+
+    // Support for custom PNG image brush stamps
+    if (style.customBrush && Array.isArray(element.points) && element.points.length > 0) {
+      const size = safeNumber(style.size, 24);
+      const opacity = clamp(safeNumber(style.opacity, 1), 0, 1);
+      const stamps = [];
+      const step = Math.max(6, size * 0.45);
+      let lastDrawn = null;
+
+      for (let i = 0; i < element.points.length; i++) {
+        const pt = element.points[i];
+        if (!pt || !Number.isFinite(pt.x) || !Number.isFinite(pt.y)) continue;
+
+        if (lastDrawn) {
+          const d = Math.hypot(pt.x - lastDrawn.x, pt.y - lastDrawn.y);
+          if (d < step && i < element.points.length - 1) continue;
+        }
+
+        let rot = 0;
+        if (i < element.points.length - 1) {
+          const next = element.points[i + 1];
+          rot = Math.atan2(next.y - pt.y, next.x - pt.x) * (180 / Math.PI);
+        }
+
+        const stampSize = size * (pt.pressure ? (0.6 + pt.pressure * 0.8) : 1);
+        const half = stampSize / 2;
+        stamps.push(
+          `<image href="${escapeXML(style.customBrush)}" x="${pt.x - half}" y="${pt.y - half}" width="${stampSize}" height="${stampSize}" opacity="${opacity}" transform="rotate(${rot.toFixed(1)} ${pt.x} ${pt.y})"/>`
+        );
+        lastDrawn = pt;
+      }
+      return `<g data-id="${element.id}">${stamps.join("")}</g>`;
+    }
 
     const tag = this.getGeometry(element);
     const isFillMode = element.renderMode === "fill";
-
-    const customBrush =
-      typeof style.customBrush === "string" &&
-      style.customBrush.startsWith("data:image/")
-        ? style.customBrush
-        : null;
-
-    let brushDefs = "";
-    let stroke = isFillMode
-      ? "none"
-      : (style.color ?? "#111111");
-
-    if (customBrush) {
-      const size = clamp(safeNumber(style.size, 2), 0, 10000);
-      const patternDim = Math.max(12, Math.round(size * 2));
-
-      // Generate a stable, SVG-safe and collision-resistant ID.
-      const rawId = String(element.id || "custom");
-      let hash = 2166136261;
-
-      for (let i = 0; i < rawId.length; i++) {
-        hash ^= rawId.charCodeAt(i);
-        hash = Math.imul(hash, 16777619);
-      }
-
-      const safeId = "rasem-export-brush-" +
-        (hash >>> 0).toString(16);
-
-      brushDefs = [
-        "<defs>",
-        `<pattern id="${safeId}" patternUnits="userSpaceOnUse" width="${patternDim}" height="${patternDim}">`,
-        `<image href="${escapeXML(customBrush)}" width="${patternDim}" height="${patternDim}" preserveAspectRatio="none"/>`,
-        "</pattern>",
-        "</defs>"
-      ].join("");
-
-      stroke = `url(#${safeId})`;
-    }
-
-    const opacity = clamp(safeNumber(style.opacity, 1), 0, 1);
 
     const attributes = {
       "data-id": element.id,
@@ -983,22 +994,20 @@ export class SVGExport {
       width: geometry.width,
       height: geometry.height,
       points: geometry.points,
-
-      fill: isFillMode
-        ? (style.color ?? "#111111")
-        : (style.fill ?? "none"),
-
-      stroke,
-      "stroke-width": safeNumber(style.size, 2),
-      "stroke-opacity": opacity,
-
-      "fill-opacity": isFillMode
-        ? opacity
-        : (style.fill && style.fill !== "none" ? opacity : undefined),
-
-      "stroke-linecap": style.lineCap || "round",
-      "stroke-linejoin": style.lineJoin || "round",
-      "stroke-dasharray": style.dashArray,
+      href: geometry.href,
+      "xlink:href": geometry["xlink:href"] || geometry.href,
+      preserveAspectRatio: geometry.preserveAspectRatio,
+      fill: tag === "image" ? undefined : (isFillMode ? (style.color ?? "#111111") : (style.fill ?? "none")),
+      stroke: tag === "image" ? undefined : (isFillMode ? "none" : (style.color ?? "#111111")),
+      "stroke-width": (tag === "image" || isFillMode) ? undefined : safeNumber(style.size, 2),
+      "stroke-opacity": tag === "image" ? undefined : clamp(safeNumber(style.opacity, 1), 0, 1),
+      "fill-opacity": tag === "image" ? undefined : (isFillMode
+        ? clamp(safeNumber(style.opacity, 1), 0, 1)
+        : (style.fill && style.fill !== "none" ? clamp(safeNumber(style.opacity, 1), 0, 1) : undefined)),
+      opacity: tag === "image" ? clamp(safeNumber(style.opacity, 1), 0, 1) : undefined,
+      "stroke-linecap": tag === "image" ? undefined : (style.lineCap || "round"),
+      "stroke-linejoin": tag === "image" ? undefined : (style.lineJoin || "round"),
+      "stroke-dasharray": tag === "image" ? undefined : style.dashArray,
       transform: element.transform,
       visibility: element.visible === false ? "hidden" : "visible"
     };
@@ -1008,12 +1017,10 @@ export class SVGExport {
         if (value === undefined || value === null) return false;
         return /^[a-zA-Z][a-zA-Z0-9-]*$/.test(name);
       })
-      .map(([name, value]) =>
-        `${name}="${escapeXML(value)}"`
-      )
+      .map(([name, value]) => `${name}="${escapeXML(value)}"`)
       .join(" ");
 
-    return `${brushDefs}<${tag} ${validAttributes}/>`;
+    return `<${tag} ${validAttributes}/>`;
   }
 
   static renderLayer(layer) {
@@ -1084,11 +1091,7 @@ export class PNGExport {
   static async export(documentData, options = {}) {
     const data = DocumentFormat.normalize(documentData);
     const bounds = SVGExport.getDimensions(data, options);
-    const scale = getSafeExportScale(
-      bounds,
-      options.scale,
-      16000000
-    );
+    const scale = clamp(safeNumber(options.scale, 2), 0.5, 8);
 
     const svg = SVGExport.generate(data, options);
     const svgBlob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
@@ -1159,19 +1162,10 @@ export class PDFExport {
     const bounds = SVGExport.getDimensions(data, options);
 
     // Render image onto high-resolution canvas
-    const scale = getSafeExportScale(
-      bounds,
-      options.scale,
-      options.background === null ? 4000000 : 8000000
-    );
-    const transparent = options.background === null;
-    const pdfBackground = transparent
-      ? undefined
-      : (options.background || "#ffffff");
-
+    const scale = clamp(safeNumber(options.scale, 2), 1, 4);
     const svg = SVGExport.generate(data, {
       ...options,
-      background: pdfBackground
+      background: options.background || "#ffffff"
     });
 
     const svgBlob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
@@ -1189,48 +1183,23 @@ export class PDFExport {
       canvas.width = Math.max(1, Math.round(bounds.width * scale));
       canvas.height = Math.max(1, Math.round(bounds.height * scale));
 
-      const ctx = canvas.getContext("2d", { alpha: true });
-      if (!ctx) throw new Error("PDF canvas context unavailable");
-      if (pdfBackground) {
-        ctx.fillStyle = pdfBackground;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = options.background || "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
 
-      // Prepare image data: JPEG for opaque PDF, RGB + alpha for transparent PDF.
-      let imgBytes;
-      let alphaBytes;
-      if (transparent) {
-        const pixels = ctx.getImageData(
-          0, 0, canvas.width, canvas.height
-        ).data;
-        const count = canvas.width * canvas.height;
-        imgBytes = new Uint8Array(count * 3);
-        alphaBytes = new Uint8Array(count);
-        for (let i = 0, rgb = 0, pixel = 0;
-             i < pixels.length;
-             i += 4, rgb += 3, pixel++) {
-          imgBytes[rgb] = pixels[i];
-          imgBytes[rgb + 1] = pixels[i + 1];
-          imgBytes[rgb + 2] = pixels[i + 2];
-          alphaBytes[pixel] = pixels[i + 3];
-        }
-      } else {
-        const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.95);
-        const binaryString = atob(jpegDataUrl.split(",")[1]);
-        imgBytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          imgBytes[i] = binaryString.charCodeAt(i);
-        }
+      // Convert to JPEG data for standard PDF 1.4 embedding
+      const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.95);
+      const base64Data = jpegDataUrl.split(",")[1];
+      const binaryString = atob(base64Data);
+      const imgBytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        imgBytes[i] = binaryString.charCodeAt(i);
       }
-      // Build valid standard PDF 1.4 document
-      const pdfFit = Math.min(
-        1,
-        14400 / (Math.max(bounds.width, bounds.height) * 0.75)
-      );
 
-      const ptWidth = bounds.width * 0.75 * pdfFit;
-      const ptHeight = bounds.height * 0.75 * pdfFit;
+      // Build valid standard PDF 1.4 document
+      const ptWidth = bounds.width * 0.75;
+      const ptHeight = bounds.height * 0.75;
 
       const enc = new TextEncoder();
       const parts = [];
@@ -1269,57 +1238,25 @@ export class PDFExport {
 
       // Obj 4: Content stream (draw image)
       const streamContent = `q\n${ptWidth.toFixed(2)} 0 0 ${ptHeight.toFixed(2)} 0 0 cm\n/Im1 Do\nQ\n`;
-      const streamBytes = enc.encode(streamContent);
-
       offsets[4] = currentLength;
-      addText(
-        `4 0 obj\n<< /Length ${streamBytes.length} >>\nstream\n`
-      );
-      addPart(streamBytes);
-      addText("\nendstream\nendobj\n");
+      addText(`4 0 obj\n<< /Length ${streamContent.length} >>\nstream\n${streamContent}endstream\nendobj\n`);
 
-      // Obj 5: Main image XObject.
+      // Obj 5: Image XObject
       offsets[5] = currentLength;
-
-      if (transparent) {
-        addText(`5 0 obj
-<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R /Length ${imgBytes.length} >>
-stream
-`);
-      } else {
-        addText(`5 0 obj
-<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imgBytes.length} >>
-stream
-`);
-      }
-
+      addText(`5 0 obj\n<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imgBytes.length} >>\nstream\n`);
       addPart(imgBytes);
       addText("\nendstream\nendobj\n");
 
-      // Grayscale soft mask carrying pixel transparency.
-      if (transparent) {
-        offsets[6] = currentLength;
-        addText(`6 0 obj
-<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceGray /BitsPerComponent 8 /Length ${alphaBytes.length} >>
-stream
-`);
-        addPart(alphaBytes);
-        addText("\nendstream\nendobj\n");
-      }
-
-      // Xref table with dynamic object count.
-      const objectCount = transparent ? 6 : 5;
+      // Xref
       const xrefOffset = currentLength;
-
-      addText(`xref\n0 ${objectCount + 1}\n0000000000 65535 f \n`);
-
-      for (let i = 1; i <= objectCount; i++) {
+      addText(`xref\n0 6\n0000000000 65535 f \n`);
+      for (let i = 1; i <= 5; i++) {
         const off = String(offsets[i]).padStart(10, "0");
         addText(`${off} 00000 n \n`);
       }
 
       // Trailer
-      addText(`trailer\n<< /Size ${objectCount + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`);
+      addText(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`);
 
       return new Blob(parts, { type: "application/pdf" });
 

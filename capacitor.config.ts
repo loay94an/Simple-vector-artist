@@ -4,7 +4,6 @@ const config: CapacitorConfig = {
   appId: 'com.rasem.vectorartist',
   appName: 'رسام فكتور بسيط',
   webDir: 'dist',
-  bundledWebRuntime: false,
   android: {
     backgroundColor: '#2563eb'
   }
