@@ -660,7 +660,7 @@
         <button id="executeShareBtn" type="button"
                 class="header-action-btn primary"
                 style="padding:0 16px;font-weight:700;">
-          مشاركة الملف
+          تحميل الملف
         </button>
       </div>
     </div>
@@ -1031,25 +1031,43 @@
           throw new Error("تعذر إنشاء ملف المشاركة.");
         }
 
-        const shared = await storageModule.shareBlob(blob, filename);
+        // Android keeps its native export path; the website downloads directly.
+        const isNative = window.Capacitor?.isNativePlatform?.() === true;
+        let completed = false;
 
-        if (shared) {
+        if (isNative) {
+          completed = await storageModule.shareBlob(blob, filename);
+        } else {
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = filename;
+          link.style.display = "none";
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+
+          setTimeout(() => URL.revokeObjectURL(url), 2000);
+          completed = true;
+        }
+
+        if (completed) {
           closeExport();
-
           const toast = document.getElementById("toast");
           if (toast) {
-            toast.textContent = "تم تجهيز الملف للمشاركة";
+            toast.textContent = isNative
+              ? "تم تجهيز الملف"
+              : "بدأ تنزيل الملف";
             toast.classList.add("show");
             setTimeout(() => toast.classList.remove("show"), 2500);
           }
         }
-
       } catch (err) {
         console.error("Share error:", err);
-        alert("تعذرت مشاركة الملف: " + (err?.message || err));
+        alert("تعذرت تحميل الملف: " + (err?.message || err));
       } finally {
         executeShareBtn.disabled = false;
-        executeShareBtn.textContent = "مشاركة الملف";
+        executeShareBtn.textContent = "تحميل الملف";
       }
     });
 
