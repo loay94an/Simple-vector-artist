@@ -16,6 +16,8 @@
    - Cleanup application resources
 ========================================================= */
 
+import { registerPlugin } from "@capacitor/core";
+
 import {
   DrawingDocument,
   Camera,
@@ -47,6 +49,38 @@ import {
 import {
   UIManager
 } from "./ui.js";
+
+/* Android native Save As bridge */
+const Downloads = registerPlugin("Downloads");
+
+if (typeof window !== "undefined") {
+  window.rasemNativeSaveAs = async function (blob, filename) {
+    if (!(blob instanceof Blob)) {
+      throw new TypeError("بيانات الملف غير صالحة.");
+    }
+
+    const safeName = String(filename || "rasem-drawing.svg")
+      .replace(/[\\/:*?"<>|]/g, "-")
+      .trim();
+
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = "";
+    const chunkSize = 0x8000;
+
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(
+        ...bytes.subarray(i, i + chunkSize)
+      );
+    }
+
+    return await Downloads.save({
+      filename: safeName,
+      mimeType: blob.type || "image/svg+xml",
+      data: btoa(binary)
+    });
+  };
+}
+
 
 // =========================================================
 // CONFIGURATION
@@ -531,10 +565,10 @@ export class RasemApplication {
 
     this.inMultitouchSession = true;
 
-    // إلغاء أي خط رسم أو تحديد بدأه الإصبع الأول فور ملامسة الإصبع الثاني
     if (this.modules.engine?.drawing) {
       this.modules.engine.cancel();
     }
+
     this.modules.tools?.handleCancel?.();
 
     if (!Array.isArray(pointers) || pointers.length < 2) {
@@ -542,12 +576,22 @@ export class RasemApplication {
       return;
     }
 
-    const first = pointers[0];
-    const second = pointers[1];
+    const selector = window.rasem?.tools?.get?.("selector");
+
+    if (
+      selector?.selectedIds?.size &&
+      selector.beginMultiTouch(pointers)
+    ) {
+      this.pointerGesture = {
+        mode: "selection"
+      };
+      return;
+    }
 
     this.pointerGesture = {
-      distance: distance(first, second),
-      center: midpoint(first, second)
+      mode: "camera",
+      distance: distance(pointers[0], pointers[1]),
+      center: midpoint(pointers[0], pointers[1])
     };
   }
 
@@ -560,34 +604,35 @@ export class RasemApplication {
       return;
     }
 
-    const first = pointers[0];
-    const second = pointers[1];
-
-    const nextDistance = distance(
-      first,
-      second
-    );
-
-    const nextCenter = midpoint(
-      first,
-      second
-    );
-
-    if (
-      !this.pointerGesture ||
-      this.pointerGesture.distance <= 0
-    ) {
-      this.pointerGesture = {
-        distance: nextDistance,
-        center: nextCenter
-      };
-
+    if (this.pointerGesture?.mode === "selection") {
+      const selector = window.rasem?.tools?.get?.("selector");
+      selector?.updateMultiTouch(pointers);
       return;
     }
 
-    // 1. تحريك اللوحة بإصبعين (Two-Finger Pan)
-    // يتم التحريك إذا كان وضع التحريك بإصبعين مفعلاً أو إذا كانت أداة اليد نشطة
-    if (this.twoFingerPanEnabled || this.modules.tools?.activeToolName === "hand") {
+    const first = pointers[0];
+    const second = pointers[1];
+
+    const nextDistance = distance(first, second);
+    const nextCenter = midpoint(first, second);
+
+    if (
+      !this.pointerGesture ||
+      this.pointerGesture.mode !== "camera" ||
+      this.pointerGesture.distance <= 0
+    ) {
+      this.pointerGesture = {
+        mode: "camera",
+        distance: nextDistance,
+        center: nextCenter
+      };
+      return;
+    }
+
+    if (
+      this.twoFingerPanEnabled ||
+      this.modules.tools?.activeToolName === "hand"
+    ) {
       const dx = nextCenter.x - this.pointerGesture.center.x;
       const dy = nextCenter.y - this.pointerGesture.center.y;
 
@@ -596,9 +641,7 @@ export class RasemApplication {
       }
     }
 
-    // 2. التقريب والإبعاد بإصبعين (Pinch Zoom)
-    const factor =
-      nextDistance / this.pointerGesture.distance;
+    const factor = nextDistance / this.pointerGesture.distance;
 
     if (
       Number.isFinite(factor) &&
@@ -613,18 +656,27 @@ export class RasemApplication {
     }
 
     this.pointerGesture = {
+      mode: "camera",
       distance: nextDistance,
       center: nextCenter
     };
   }
 
   handleMultitouchEnd() {
+    const wasSelectionGesture =
+      this.pointerGesture?.mode === "selection";
+
     this.pointerGesture = null;
 
-    if (this.modules.engine?.drawing) {
-      this.modules.engine.cancel();
+    if (wasSelectionGesture) {
+      const selector = window.rasem?.tools?.get?.("selector");
+      selector?.endMultiTouch();
+    } else {
+      if (this.modules.engine?.drawing) {
+        this.modules.engine.cancel();
+      }
+      this.modules.tools?.handleCancel?.();
     }
-    this.modules.tools?.handleCancel?.();
 
     this.scheduleAutosave();
   }
@@ -672,6 +724,44 @@ export class RasemApplication {
   }
 
   initializeControls() {
+    // SELECTION_ACTION_BAR_BINDINGS
+    const selBar = document.getElementById("selectionActionBar");
+
+    const selChangeHandler = event => {
+      const count = event.detail?.count || 0;
+      selBar?.classList.toggle("visible", count > 0);
+    };
+
+    window.addEventListener("rasem:selection-change", selChangeHandler);
+    this.cleanupCallbacks.push(() => {
+      window.removeEventListener("rasem:selection-change", selChangeHandler);
+    });
+
+    const selector = () => window.rasem?.tools?.get?.("selector");
+
+    const selectionButtons = [
+      ["selDeleteBtn", () => selector()?.deleteSelected?.()],
+      ["selConfirmBtn", () => selector()?.clearSelection?.()],
+      ["selClearBtn", () => selector()?.clearSelection?.()]
+    ];
+
+    for (const [id, action] of selectionButtons) {
+      const button = document.getElementById(id);
+      if (!button) continue;
+
+      const handler = event => {
+        event.preventDefault();
+        action();
+      };
+
+      button.addEventListener("click", handler);
+      this.cleanupCallbacks.push(() => {
+        button.removeEventListener("click", handler);
+      });
+    }
+    // END SELECTION_ACTION_BAR_BINDINGS
+
+
     this.bindHistoryButtons();
 
     this.bindClick(

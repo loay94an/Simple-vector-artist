@@ -170,6 +170,23 @@ export class BaseTool {
    3. PEN
 ========================================================= */
 
+
+/* =========================================================
+   BUCKET FILL TOOL
+========================================================= */
+export class Bucket extends BaseTool {
+  constructor(engine, camera) {
+    super(engine, camera);
+    this.name = "bucket";
+  }
+
+  down(event) {
+    if (!this.active || !this.engine) return false;
+    this.engine.fillAt(event);
+    return true;
+  }
+}
+
 export class Pen extends BaseTool {
   constructor(engine, camera) {
     super(engine, camera);
@@ -377,6 +394,7 @@ export class Selector extends BaseTool {
     this.initialSnapshot = new Map();
     this.initialBounds = null;
     this.moved = false;
+    this.rotationStartAngle = 0;
   }
 
   getLayer() {
@@ -544,12 +562,31 @@ export class Selector extends BaseTool {
             pointer-events="none"/>
     `;
 
+    html += `
+      <line x1="${bx + bw / 2}" y1="${by}"
+            x2="${bx + bw / 2}" y2="${by - 25}"
+            stroke="#2563eb" stroke-width="2"
+            pointer-events="none"/>
+      <circle data-handle="rotate"
+              cx="${bx + bw / 2}" cy="${by - 25}" r="22"
+              fill="transparent" stroke="none"
+              style="pointer-events:all;touch-action:none;"/>
+      <circle class="selection-handle"
+              cx="${bx + bw / 2}" cy="${by - 25}" r="10"
+              fill="#ffffff" stroke="#2563eb" stroke-width="2"
+              pointer-events="none"/>
+    `;
+
     for (const h of handles) {
       html += `
-        <rect class="selection-handle" data-handle="${h.name}"
-              x="${h.x - 5}" y="${h.y - 5}" width="10" height="10" rx="2"
-              fill="#ffffff" stroke="#2563eb" stroke-width="2"
-              style="cursor:${h.cursor}; touch-action:none;"/>
+        <rect data-handle="${h.name}"
+              x="${h.x - 22}" y="${h.y - 22}" width="44" height="44"
+              fill="transparent" stroke="none"
+              style="pointer-events:all;touch-action:none;cursor:${h.cursor};"/>
+        <circle class="selection-handle"
+                cx="${h.x}" cy="${h.y}" r="9"
+                fill="#ffffff" stroke="#2563eb" stroke-width="2"
+                pointer-events="none"/>
       `;
     }
 
@@ -578,10 +615,16 @@ export class Selector extends BaseTool {
     const handleEl = event.target?.closest?.("[data-handle]");
     if (handleEl && this.selectedIds.size > 0) {
       this.pointerDown = true;
-      this.dragMode = "handle";
       this.activeHandle = handleEl.dataset.handle;
+      this.dragMode = this.activeHandle === "rotate" ? "rotate" : "handle";
       this.startPoint = point;
       this.initialBounds = this.getBounds();
+      if (this.dragMode === "rotate" && this.initialBounds) {
+        this.rotationStartAngle = Math.atan2(
+          point.y - this.initialBounds.cy,
+          point.x - this.initialBounds.cx
+        );
+      }
       this.snapshotElements();
       this.moved = false;
       return true;
@@ -614,9 +657,7 @@ export class Selector extends BaseTool {
       return true;
     }
 
-    if (!event.shiftKey) {
-      this.clearSelection();
-    }
+    // Keep selection until the user presses the confirm button.
     this.pointerDown = false;
     return false;
   }
@@ -628,7 +669,8 @@ export class Selector extends BaseTool {
         points: Array.isArray(el.points) ? el.points.map(p => ({ ...p })) : null,
         geometry: el.geometry ? { ...el.geometry } : null,
         style: el.style ? { ...el.style } : null,
-        path: el.path
+        path: el.path,
+        transform: el.transform
       });
     }
   }
@@ -676,6 +718,28 @@ export class Selector extends BaseTool {
       return true;
     }
 
+    if (this.dragMode === "rotate" && this.initialBounds) {
+      const center = this.initialBounds;
+      const currentAngle = Math.atan2(
+        point.y - center.cy,
+        point.x - center.cx
+      );
+      const degrees = (currentAngle - this.rotationStartAngle) * 180 / Math.PI;
+
+      for (const el of this.getSelectedElements()) {
+        const snap = this.initialSnapshot.get(el.id);
+        if (!snap) continue;
+
+        const rotation = `rotate(${degrees} ${center.cx} ${center.cy})`;
+        el.transform = [rotation, snap.transform].filter(Boolean).join(" ");
+      }
+
+      this.moved = true;
+      this.engine.renderer.renderActiveLayer(layer);
+      this.renderOverlay();
+      return true;
+    }
+
     if (this.dragMode === "handle" && this.initialBounds) {
       const ib = this.initialBounds;
       let scaleX = 1;
@@ -683,32 +747,22 @@ export class Selector extends BaseTool {
       let originX = ib.cx;
       let originY = ib.cy;
 
-      if (this.activeHandle === "br") {
+      const handle = this.activeHandle;
+
+      if (handle === "br" || handle === "mr" || handle === "tr") {
         originX = ib.minX;
-        originY = ib.minY;
         scaleX = Math.max(0.1, (ib.width + dx) / ib.width);
-        scaleY = Math.max(0.1, (ib.height + dy) / ib.height);
-      } else if (this.activeHandle === "tl") {
+      } else if (handle === "bl" || handle === "ml" || handle === "tl") {
         originX = ib.maxX;
-        originY = ib.maxY;
         scaleX = Math.max(0.1, (ib.width - dx) / ib.width);
-        scaleY = Math.max(0.1, (ib.height - dy) / ib.height);
-      } else if (this.activeHandle === "tr") {
-        originX = ib.minX;
-        originY = ib.maxY;
-        scaleX = Math.max(0.1, (ib.width + dx) / ib.width);
-        scaleY = Math.max(0.1, (ib.height - dy) / ib.height);
-      } else if (this.activeHandle === "bl") {
-        originX = ib.maxX;
-        originY = ib.minY;
-        scaleX = Math.max(0.1, (ib.width - dx) / ib.width);
-        scaleY = Math.max(0.1, (ib.height + dy) / ib.height);
-      } else if (this.activeHandle === "mr") {
-        originX = ib.minX;
-        scaleX = Math.max(0.1, (ib.width + dx) / ib.width);
-      } else if (this.activeHandle === "bc") {
+      }
+
+      if (handle === "br" || handle === "bc" || handle === "bl") {
         originY = ib.minY;
         scaleY = Math.max(0.1, (ib.height + dy) / ib.height);
+      } else if (handle === "tr" || handle === "tc" || handle === "tl") {
+        originY = ib.maxY;
+        scaleY = Math.max(0.1, (ib.height - dy) / ib.height);
       }
 
       for (const el of this.getSelectedElements()) {
@@ -747,9 +801,18 @@ export class Selector extends BaseTool {
             el.geometry.y2 = originY + (snap.geometry.y2 - originY) * scaleY;
           }
           if ((el.type === "text" || el.svgTag === "text") && snap.style) {
-            const fontScale = (scaleX + scaleY) / 2;
             const baseFontSize = snap.style.fontSize || snap.style.size || 24;
-            el.style = { ...el.style, fontSize: Math.max(8, Math.round(baseFontSize * fontScale)) };
+            const baseWidth = snap.geometry?.scaleX || 1;
+            const baseHeight = snap.geometry?.scaleY || 1;
+
+            el.geometry.scaleX = Math.max(0.1, baseWidth * scaleX);
+            el.geometry.scaleY = Math.max(0.1, baseHeight * scaleY);
+
+            el.style = {
+              ...snap.style,
+              fontSize: Math.max(8, Math.round(baseFontSize * Math.sqrt(scaleX * scaleY))),
+              size: Math.max(8, Math.round(baseFontSize * Math.sqrt(scaleX * scaleY)))
+            };
           }
         }
       }
@@ -779,6 +842,151 @@ export class Selector extends BaseTool {
 
     const changed = this.moved;
     this.moved = false;
+    return changed;
+  }
+
+
+  beginMultiTouch(pointers) {
+    if (!Array.isArray(pointers) || pointers.length < 2) return false;
+
+    const layer = this.getLayer();
+    if (!layer || layer.locked || !this.selectedIds.size) return false;
+
+    const first = pointers[0];
+    const second = pointers[1];
+
+    const firstPoint = this.engine.getWorldPoint({
+      clientX: first.clientX ?? first.x,
+      clientY: first.clientY ?? first.y
+    });
+
+    const secondPoint = this.engine.getWorldPoint({
+      clientX: second.clientX ?? second.x,
+      clientY: second.clientY ?? second.y
+    });
+
+    if (!firstPoint || !secondPoint) return false;
+
+    const dx = secondPoint.x - firstPoint.x;
+    const dy = secondPoint.y - firstPoint.y;
+    const startDistance = Math.hypot(dx, dy);
+
+    if (!Number.isFinite(startDistance) || startDistance <= 0) return false;
+
+    const elements = new Map();
+
+    for (const el of this.getSelectedElements()) {
+      elements.set(el.id, {
+        transform: el.transform || ""
+      });
+    }
+
+    if (!elements.size) return false;
+
+    this.multiTouchSnapshot = {
+      layer,
+      elements,
+      startDistance,
+      startAngle: Math.atan2(dy, dx),
+      startCenter: {
+        x: (firstPoint.x + secondPoint.x) / 2,
+        y: (firstPoint.y + secondPoint.y) / 2
+      }
+    };
+
+    this.pointerDown = false;
+    this.initialSnapshot.clear();
+    this.moved = false;
+
+    return true;
+  }
+
+  updateMultiTouch(pointers) {
+    const snapshot = this.multiTouchSnapshot;
+
+    if (!snapshot || !Array.isArray(pointers) || pointers.length < 2) {
+      return false;
+    }
+
+    const first = pointers[0];
+    const second = pointers[1];
+
+    const firstPoint = this.engine.getWorldPoint({
+      clientX: first.clientX ?? first.x,
+      clientY: first.clientY ?? first.y
+    });
+
+    const secondPoint = this.engine.getWorldPoint({
+      clientX: second.clientX ?? second.x,
+      clientY: second.clientY ?? second.y
+    });
+
+    if (!firstPoint || !secondPoint) return false;
+
+    const dx = secondPoint.x - firstPoint.x;
+    const dy = secondPoint.y - firstPoint.y;
+    const currentDistance = Math.hypot(dx, dy);
+
+    if (!Number.isFinite(currentDistance) || currentDistance <= 0) {
+      return false;
+    }
+
+    const factor = Math.max(
+      0.05,
+      Math.min(20, currentDistance / snapshot.startDistance)
+    );
+
+    let angle = Math.atan2(dy, dx) - snapshot.startAngle;
+
+    while (angle > Math.PI) angle -= Math.PI * 2;
+    while (angle < -Math.PI) angle += Math.PI * 2;
+
+    const currentCenter = {
+      x: (firstPoint.x + secondPoint.x) / 2,
+      y: (firstPoint.y + secondPoint.y) / 2
+    };
+
+    const moveX = currentCenter.x - snapshot.startCenter.x;
+    const moveY = currentCenter.y - snapshot.startCenter.y;
+
+    for (const el of this.getSelectedElements()) {
+      const original = snapshot.elements.get(el.id);
+      if (!original) continue;
+
+      const transform = [
+        `translate(${moveX} ${moveY})`,
+        `translate(${snapshot.startCenter.x} ${snapshot.startCenter.y})`,
+        `rotate(${angle * 180 / Math.PI})`,
+        `scale(${factor})`,
+        `translate(${-snapshot.startCenter.x} ${-snapshot.startCenter.y})`,
+        original.transform
+      ].filter(Boolean).join(" ");
+
+      el.transform = transform;
+    }
+
+    this.moved = true;
+    this.engine.renderer.renderActiveLayer(snapshot.layer);
+    this.renderOverlay();
+
+    return true;
+  }
+
+  endMultiTouch() {
+    if (!this.multiTouchSnapshot) return false;
+
+    const changed = this.moved;
+    this.multiTouchSnapshot = null;
+    this.moved = false;
+
+    if (changed) {
+      this.engine.document.touch?.();
+      this.engine.commitHistory();
+      this.engine.renderer.render(this.engine.document);
+      this.renderOverlay();
+      this.emitChange();
+    }
+
     return changed;
   }
 
@@ -826,7 +1034,15 @@ export class Selector extends BaseTool {
   }
 
   cancel() {
-    this.clearSelection();
+    // Cancel the current pointer gesture without clearing the selection.
+    this.pointerDown = false;
+    this.dragMode = null;
+    this.activeHandle = null;
+    this.initialSnapshot.clear();
+    this.moved = false;
+
+    this.renderOverlay();
+    this.emitChange();
     return true;
   }
 
@@ -1449,72 +1665,57 @@ export class TextTool extends BaseTool {
   }
 
   promptText(point) {
-    let modal = document.getElementById("textInputModalBackdrop");
-    if (!modal) {
-      modal = document.createElement("div");
-      modal.id = "textInputModalBackdrop";
-      modal.className = "modal-overlay-wrapper";
-      modal.innerHTML = `
-        <div class="modal-box" style="padding:16px; width:min(380px, calc(100vw - 28px));" dir="rtl">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid var(--border); padding-bottom:8px;">
-            <strong style="font-size:14px; color:var(--text); display:flex; align-items:center; gap:8px;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>
-              كتابة نص وملاحظة على اللوحة
-            </strong>
-            <button type="button" id="closeTextModalBtn" class="concepts-close-btn" style="border:none; background:transparent; font-size:18px; cursor:pointer; color:var(--text-muted);">✕</button>
-          </div>
-          <textarea id="textModalArea" placeholder="اكتب هنا النص أو الملاحظة..." rows="3" style="width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--text); font-family:'Cairo', sans-serif; font-size:14px; outline:none; resize:vertical;"></textarea>
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
-            <div style="display:flex; align-items:center; gap:6px;">
-              <label for="textModalFontSize" style="font-size:12px; color:var(--text-muted);">الحجم:</label>
-              <select id="textModalFontSize" style="padding:4px 8px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:12px;">
-                <option value="18">18px صغير</option>
-                <option value="24" selected>24px متوسط</option>
-                <option value="36">36px كبير</option>
-                <option value="48">48px عريض</option>
-                <option value="64">64px ضخم</option>
-              </select>
-            </div>
-            <div style="display:flex; gap:8px;">
-              <button type="button" id="cancelTextModalBtn" class="header-action-btn" style="padding:6px 12px; font-size:12px;">إلغاء</button>
-              <button type="button" id="confirmTextModalBtn" class="header-action-btn primary" style="padding:6px 16px; font-size:12px; font-weight:700;">إدراج</button>
-            </div>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(modal);
+    const modal = document.getElementById("textInputModalBackdrop");
+    const dialog = document.getElementById("textInputModal");
+    const textarea = document.getElementById("textToolInput");
+    const fontSelect = document.getElementById("textToolFontSize");
+    const fontSizeValue = document.getElementById("textToolFontSizeVal");
+
+    if (!modal || !dialog || !textarea || !fontSelect) {
+      console.error("TextTool: نافذة إدخال النص أو عناصرها غير موجودة");
+      return;
     }
 
     modal.hidden = false;
-    const textarea = modal.querySelector("#textModalArea");
-    const fontSelect = modal.querySelector("#textModalFontSize");
-    if (textarea) {
-      textarea.value = "";
-      setTimeout(() => textarea.focus(), 60);
-    }
+    dialog.hidden = false;
+
+    textarea.value = "";
+
+    const updateFontSize = () => {
+      if (fontSizeValue) {
+        fontSizeValue.textContent = `${fontSelect.value}px`;
+      }
+    };
+
+    fontSelect.oninput = updateFontSize;
+    updateFontSize();
 
     const hide = () => {
       modal.hidden = true;
+      dialog.hidden = true;
     };
 
-    const closeBtn = modal.querySelector("#closeTextModalBtn");
-    const cancelBtn = modal.querySelector("#cancelTextModalBtn");
-    const confirmBtn = modal.querySelector("#confirmTextModalBtn");
+    const closeBtn = document.getElementById("cancelTextInputBtn");
+    const cancelBtn = document.getElementById("abortTextInputBtn");
+    const confirmBtn = document.getElementById("confirmTextInputBtn");
 
     if (closeBtn) closeBtn.onclick = hide;
     if (cancelBtn) cancelBtn.onclick = hide;
-    modal.onclick = (e) => {
-      if (e.target === modal) hide();
+
+    modal.onclick = (event) => {
+      if (event.target === modal) hide();
     };
 
     if (confirmBtn) {
       confirmBtn.onclick = () => {
-        const text = textarea?.value?.trim();
+        const text = textarea.value.trim();
+
         if (!text) {
-          hide();
+          textarea.focus();
           return;
         }
-        const fontSize = parseInt(fontSelect?.value || "24", 10);
+
+        const fontSize = parseInt(fontSelect.value || "32", 10);
         const color = this.engine.settings?.color || "#111111";
 
         const element = {
@@ -1541,13 +1742,18 @@ export class TextTool extends BaseTool {
         this.engine.renderer.render(this.engine.document);
         hide();
 
-        const selector = this.engine.toolManager?.get("selector") || window.rasem?.tools?.get?.("selector");
+        const selector =
+          this.engine.toolManager?.get("selector") ||
+          window.rasem?.tools?.get?.("selector");
+
         if (selector) {
           this.engine.toolManager?.activate("selector");
           selector.select(element.id);
         }
       };
     }
+
+    setTimeout(() => textarea.focus(), 60);
   }
 }
 
@@ -1583,6 +1789,7 @@ export class ToolManager {
     this.register("calligraphy", new Calligraphy(this.engine, this.camera));
     this.register("pencil", new Pencil(this.engine, this.camera));
     this.register("marker", new Marker(this.engine, this.camera));
+    this.register("bucket", new Bucket(this.engine, this.camera));
     this.register("eraser", new Eraser(this.engine, this.camera));
     this.register("text", new TextTool(this.engine, this.camera));
 

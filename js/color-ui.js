@@ -559,30 +559,44 @@
     }
   }
 
-  // Bind Open button with click and LONG-PRESS shortcut for Eyedropper
+  // Bind Open button with reliable single-click and LONG-PRESS Eyedropper
   if (openBtn) {
     let pressTimer = null;
     let isLongPress = false;
 
     openBtn.addEventListener("pointerdown", () => {
+      clearTimeout(pressTimer);
       isLongPress = false;
+
       pressTimer = setTimeout(() => {
         isLongPress = true;
-        try { if (navigator.vibrate) navigator.vibrate(40); } catch {}
+        try {
+          if (navigator.vibrate) navigator.vibrate(40);
+        } catch {}
         triggerEyedropperDirectly();
-      }, 380); // 380ms long-press activates Eyedropper directly
+      }, 380);
     });
 
     openBtn.addEventListener("pointerup", () => {
       clearTimeout(pressTimer);
-      if (!isLongPress) {
-        // Normal click opens/toggles the Concepts color wheel
-        toggleConceptsWheel();
-      }
+      pressTimer = null;
     });
 
     openBtn.addEventListener("pointercancel", () => {
       clearTimeout(pressTimer);
+      pressTimer = null;
+      isLongPress = false;
+    });
+
+    openBtn.addEventListener("click", (e) => {
+      if (isLongPress) {
+        e.preventDefault();
+        e.stopPropagation();
+        isLongPress = false;
+        return;
+      }
+
+      toggleConceptsWheel();
     });
   }
 

@@ -163,6 +163,86 @@ export async function downloadBlob(blob, filename) {
   return true;
 }
 
+
+// =========================================================
+// SHARE FILE - Android Capacitor 8 + Web Share fallback
+// =========================================================
+
+export async function shareBlob(blob, filename) {
+  if (!(blob instanceof Blob)) {
+    throw new TypeError("Invalid share Blob");
+  }
+
+  const safeName = String(filename || "rasem-" + Date.now())
+    .replaceAll("/", "-")
+    .replaceAll("\\", "-")
+    .replaceAll(":", "-")
+    .replaceAll("*", "-")
+    .replaceAll("?", "-")
+    .replaceAll('"', "-")
+    .replaceAll("<", "-")
+    .replaceAll(">", "-")
+    .replaceAll("|", "-")
+    .trim();
+
+  const { Capacitor } = await import("@capacitor/core");
+  const platform = Capacitor.getPlatform();
+
+  if (platform !== "android" || !Capacitor.isNativePlatform()) {
+    throw new Error(
+      "لم يتعرف التطبيق على بيئة Android الأصلية. المنصة المكتشفة: " + platform
+    );
+  }
+
+  try {
+    const [{ Filesystem, Directory }, { Share }] = await Promise.all([
+      import("@capacitor/filesystem"),
+      import("@capacitor/share")
+    ]);
+
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = "";
+    const chunkSize = 0x8000;
+
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+
+    const saved = await Filesystem.writeFile({
+      path: safeName,
+      data: btoa(binary),
+      directory: Directory.Cache,
+      recursive: true
+    });
+
+    const uri = saved.uri || (
+      await Filesystem.getUri({
+        path: safeName,
+        directory: Directory.Cache
+      })
+    ).uri;
+
+    if (!uri) {
+      throw new Error("تعذر الحصول على رابط ملف المشاركة.");
+    }
+
+    await Share.share({
+      title: safeName,
+      dialogTitle: "مشاركة الرسم",
+      files: [uri]
+    });
+
+    return true;
+  } catch (error) {
+    if (error?.name === "AbortError") return false;
+
+    console.error("Android native sharing failed:", error);
+    throw new Error(
+      "تعذرت مشاركة الملف عبر Android: " + (error?.message || error)
+    );
+  }
+}
+
 function normalizeFilename(name, extension) {
   const safeName = String(name || "rasem-drawing")
     .replace(/[\\/:*?"<>|]/g, "-")

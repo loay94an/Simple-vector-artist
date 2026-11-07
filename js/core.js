@@ -703,6 +703,10 @@ export class Scene {
     );
 
     node.setAttribute("fill", fill);
+    if (style.calligraphyClean === true) {
+      node.style.filter = "none";
+      node.removeAttribute("filter");
+    }
     const customBrush = style.customBrush;
 
     if (
@@ -768,6 +772,14 @@ export class Scene {
     }
     node.setAttribute("stroke-width", size);
     node.setAttribute("stroke-opacity", opacity);
+
+    // الخط العربي المغلق يعتمد على التعبئة فقط
+    // منع تراكب الحد مع التعبئة عند خفض الشفافية.
+    if (style.calligraphyClean === true && fill !== "none") {
+      node.setAttribute("stroke", "none");
+      node.setAttribute("stroke-width", "0");
+      node.removeAttribute("stroke-opacity");
+    }
 
     node.setAttribute(
       "stroke-linecap",

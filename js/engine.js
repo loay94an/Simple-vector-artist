@@ -268,6 +268,8 @@ export class StrokeBuilder {
       strength: options.smoothing ?? 0.3,
       minDistance: options.minDistance ?? 0.35
     });
+    this.baseSmoothingStrength = this.smoothing.strength;
+    this.baseSmoothingMinDistance = this.smoothing.minDistance;
 
     this.pressure = new Pressure();
     this.reset();
@@ -344,7 +346,8 @@ export class StrokeBuilder {
 
     if (
       previous &&
-      EngineUtils.distance(previous, point) < 0.2
+      EngineUtils.distance(previous, point) <
+        (this.tool === "calligraphy" ? 0.02 : 0.2)
     ) {
       return false;
     }
@@ -364,6 +367,16 @@ export class StrokeBuilder {
   }
 
   getFilteredPoints() {
+    const isCalligraphy = this.tool === "calligraphy";
+
+    this.smoothing.strength = isCalligraphy
+      ? this.baseSmoothingStrength * 0.65
+      : this.baseSmoothingStrength;
+
+    this.smoothing.minDistance = isCalligraphy
+      ? Math.min(this.baseSmoothingMinDistance, 0.02)
+      : this.baseSmoothingMinDistance;
+
     return this.smoothing.process(this.points);
   }
 
@@ -453,37 +466,97 @@ export class StrokeBuilder {
   getCalligraphyOutline() {
     const points = this.getFilteredPoints();
     if (!points.length) return "";
-    const angleRad = (this.calligraphyAngle || 45) * (Math.PI / 180);
+
+    const angle = Number.isFinite(this.calligraphyAngle) ? this.calligraphyAngle : 45;
+    const angleRad = angle * (Math.PI / 180);
     const cosA = Math.cos(angleRad);
     const sinA = Math.sin(angleRad);
-    const radius = Math.max(1, this.baseSize / 2);
 
-    const left = [];
-    const right = [];
+    const nibWidths = {
+      "cal-thuluth": 1.25,
+      "cal-naskh": 1.0,
+      "cal-ruqah": 0.85,
+      "cal-fine": 0.60
+    };
 
-    for (let i = 0; i < points.length; i++) {
-      const p = points[i];
-      const pressureMultiplier = this.pressureEnabled ? (0.35 + (p.pressure || 1) * 0.65) : 1;
-      const r = radius * pressureMultiplier;
+    const nibScale = nibWidths[this.brushStyle?.preset] || 1;
+    const radius = Math.max(0.6, (this.baseSize / 2) * nibScale);
 
-      left.push({
-        x: p.x + cosA * r,
-        y: p.y + sinA * r
-      });
-      right.push({
-        x: p.x - cosA * r,
-        y: p.y - sinA * r
-      });
+    const getRadius = (point) => {
+      const pressureMultiplier = this.pressureEnabled
+        ? (0.35 + (point.pressure || 1) * 0.65)
+        : 1;
+      return radius * pressureMultiplier;
+    };
+
+    // كل مقطع يُرسم كمضلع مستقل داخل مسار واحد.
+    // توحيد اتجاه المضلعات يجعل تعبئتها غير الصفرية متصلة
+    // ويمنع تحوّل مناطق التقاطع الذاتي إلى ثقوب.
+    const makeSegment = (start, end, startRadius, endRadius) => {
+      const polygon = [
+        {
+          x: start.x + cosA * startRadius,
+          y: start.y + sinA * startRadius
+        },
+        {
+          x: end.x + cosA * endRadius,
+          y: end.y + sinA * endRadius
+        },
+        {
+          x: end.x - cosA * endRadius,
+          y: end.y - sinA * endRadius
+        },
+        {
+          x: start.x - cosA * startRadius,
+          y: start.y - sinA * startRadius
+        }
+      ];
+
+      let area = 0;
+      for (let i = 0; i < polygon.length; i++) {
+        const a = polygon[i];
+        const b = polygon[(i + 1) % polygon.length];
+        area += a.x * b.y - b.x * a.y;
+      }
+
+      if (area < 0) polygon.reverse();
+
+      return polygon.map((point, index) =>
+        `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
+      ).join(" ") + " Z";
+    };
+
+    const segments = [];
+
+    if (points.length === 1) {
+      const point = points[0];
+      const r = getRadius(point);
+      const halfLength = Math.max(0.6, r * 0.5);
+      const tangentX = -sinA;
+      const tangentY = cosA;
+
+      const start = {
+        x: point.x - tangentX * halfLength,
+        y: point.y - tangentY * halfLength
+      };
+      const end = {
+        x: point.x + tangentX * halfLength,
+        y: point.y + tangentY * halfLength
+      };
+
+      segments.push(makeSegment(start, end, r, r));
+    } else {
+      for (let i = 1; i < points.length; i++) {
+        const start = points[i - 1];
+        const end = points[i];
+
+        segments.push(
+          makeSegment(start, end, getRadius(start), getRadius(end))
+        );
+      }
     }
 
-    const outline = [
-      ...left,
-      ...right.reverse()
-    ];
-
-    return outline.map((p, index) =>
-      `${index === 0 ? "M" : "L"} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`
-    ).join(" ") + " Z";
+    return segments.join(" ");
   }
 
   build(options = {}) {
@@ -494,7 +567,7 @@ export class StrokeBuilder {
     const pressureEnabled =
       options.pressureEnabled ?? this.pressureEnabled;
 
-    const isCalligraphy = this.tool === "calligraphy" || this.brushStyle?.preset === "calligraphy";
+    const isCalligraphy = this.tool === "calligraphy" || this.brushStyle?.preset === "calligraphy" || String(this.brushStyle?.preset || "").startsWith("cal-");
 
     const variableWidth = isCalligraphy || (
       pressureEnabled &&
@@ -534,7 +607,8 @@ export class StrokeBuilder {
         lineCap: brushStyle.lineCap || "round",
         lineJoin: brushStyle.lineJoin || "round",
         dashArray: brushStyle.dashArray || "",
-        customBrush: brushStyle.image || null
+        customBrush: brushStyle.image || null,
+        calligraphyClean: isCalligraphy
       }
     };
   }
@@ -842,7 +916,7 @@ export class DrawingEngine {
       this.settings.calligraphyAngle = EngineUtils.clamp(
         settings.calligraphyAngle,
         0,
-        360
+        180
       );
     }
 
@@ -1217,36 +1291,358 @@ export class DrawingEngine {
       Math.max(0.01, zoom);
   }
 
+
+  async fillAt(event) {
+    const layer = this.activeLayer;
+    if (!this.canDraw() || !event) return false;
+
+    const color = this.settings.color;
+    if (typeof color !== "string" || !/^#[0-9a-f]{6}$/i.test(color)) {
+      return false;
+    }
+
+    const svg = this.renderer?.svg;
+    if (!svg || typeof XMLSerializer === "undefined") return false;
+
+    const rect = svg.getBoundingClientRect();
+    if (!(rect.width > 0 && rect.height > 0)) return false;
+
+    // تحديد دقة مناسبة للهاتف لتقليل استهلاك الذاكرة.
+    const scale = Math.min(1, 1100 / rect.width, 1100 / rect.height);
+    const width = Math.max(1, Math.round(rect.width * scale));
+    const height = Math.max(1, Math.round(rect.height * scale));
+    const total = width * height;
+
+    if (total > 1300000) return false;
+
+    // ربط نقطة الضغط بإحداثيات SVG الفعلية، مع مراعاة viewBox والتحويلات.
+    const svgMatrix = svg.getScreenCTM();
+    if (!svgMatrix) return false;
+
+    let viewBox = svg.viewBox?.baseVal;
+    if (!viewBox || !(viewBox.width > 0 && viewBox.height > 0)) {
+      viewBox = {
+        x: 0,
+        y: 0,
+        width: rect.width,
+        height: rect.height
+      };
+    }
+
+    const pointer = svg.createSVGPoint();
+    pointer.x = event.clientX;
+    pointer.y = event.clientY;
+
+    let svgPointer;
+    try {
+      svgPointer = pointer.matrixTransform(svgMatrix.inverse());
+    } catch {
+      return false;
+    }
+
+    const seedX = Math.floor(
+      (svgPointer.x - viewBox.x) * width / viewBox.width
+    );
+    const seedY = Math.floor(
+      (svgPointer.y - viewBox.y) * height / viewBox.height
+    );
+
+    if (seedX < 0 || seedY < 0 || seedX >= width || seedY >= height) {
+      return false;
+    }
+
+    const clone = svg.cloneNode(true);
+    clone.setAttribute("width", String(width));
+    clone.setAttribute("height", String(height));
+
+    clone.setAttribute("width", String(width));
+    clone.setAttribute("height", String(height));
+
+    // تضمين التنسيقات المحسوبة حتى تظهر الخطوط كما يراها المستخدم.
+    try {
+      const originals = [svg, ...svg.querySelectorAll("*")];
+      const copies = [clone, ...clone.querySelectorAll("*")];
+      const properties = [
+        "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin",
+        "stroke-dasharray", "fill", "fill-opacity", "stroke-opacity",
+        "opacity", "display", "visibility", "font-family", "font-size",
+        "font-weight"
+      ];
+
+      for (let i = 0; i < Math.min(originals.length, copies.length); i++) {
+        const computed = getComputedStyle(originals[i]);
+        const inline = properties
+          .map(key => `${key}:${computed.getPropertyValue(key)}`)
+          .join(";");
+        const previous = copies[i].getAttribute("style") || "";
+        copies[i].setAttribute("style", previous + ";" + inline);
+      }
+    } catch {
+      // يستمر باستخدام التنسيقات الموجودة في SVG عند تعذر قراءة computed style.
+    }
+
+    // نسخة الفحص تعرض حدود العناصر فقط، وليس تعبئاتها الأصلية.
+    const outlineTags = new Set([
+      "path", "rect", "circle", "ellipse",
+      "polygon", "polyline", "line"
+    ]);
+
+    for (const node of clone.querySelectorAll("*")) {
+      if (outlineTags.has(node.localName)) {
+        // !important يمنع قيمة fill المنسوخة داخل style من إظهار التعبئة الأصلية.
+        node.style?.setProperty("fill", "none", "important");
+        node.style?.setProperty("fill-opacity", "1", "important");
+        node.setAttribute("fill", "none");
+        node.setAttribute("fill-opacity", "1");
+      }
+    }
+
+    // جعل صورة الفحص تغطي كامل viewBox دون هوامش letterbox.
+    clone.setAttribute("preserveAspectRatio", "none");
+
+    let objectUrl = null;
+
+    try {
+      const source = new XMLSerializer().serializeToString(clone);
+      const blob = new Blob([source], {
+        type: "image/svg+xml;charset=utf-8"
+      });
+      objectUrl = URL.createObjectURL(blob);
+
+      const image = new Image();
+      await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = reject;
+        image.src = objectUrl;
+      });
+
+      // تحويل نسخة SVG إلى صورة نقطية لفحص الحدود.
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+
+      const context = canvas.getContext("2d", {
+        willReadFrequently: true
+      });
+
+      if (!context) return false;
+
+      context.clearRect(0, 0, width, height);
+      context.drawImage(image, 0, 0, width, height);
+
+      const pixels = context.getImageData(0, 0, width, height).data;
+      const seed = seedY * width + seedX;
+
+      // كل بكسل مرئي من الخطوط الملونة أو الداكنة يمثل جزءاً من الحدود.
+      const boundary = new Uint8Array(total);
+
+      for (let i = 0; i < total; i++) {
+        const alpha = pixels[i * 4 + 3];
+        if (alpha > 12) boundary[i] = 1;
+      }
+
+      // توسيع الحدود بكسلاً واحداً لإغلاق الفجوات الناتجة عن تنعيم الحواف.
+      const expandedBoundary = new Uint8Array(total);
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const index = y * width + x;
+          if (!boundary[index]) continue;
+
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const nx = x + dx;
+              const ny = y + dy;
+
+              if (
+                nx >= 0 && nx < width &&
+                ny >= 0 && ny < height
+              ) {
+                expandedBoundary[ny * width + nx] = 1;
+              }
+            }
+          }
+        }
+      }
+
+      const isBoundary = index => expandedBoundary[index] === 1;
+
+      if (isBoundary(seed)) return false;
+
+      const visited = new Uint8Array(total);
+      const queue = new Int32Array(total);
+      let head = 0;
+      let tail = 0;
+      queue[tail++] = seed;
+      visited[seed] = 1;
+
+      let touchesEdge = false;
+      while (head < tail) {
+        const index = queue[head++];
+        const x = index % width;
+        const y = Math.floor(index / width);
+
+        if (x === 0 || y === 0 || x === width - 1 || y === height - 1) {
+          touchesEdge = true;
+        }
+
+        const neighbors = [
+          x > 0 ? index - 1 : -1,
+          x + 1 < width ? index + 1 : -1,
+          y > 0 ? index - width : -1,
+          y + 1 < height ? index + width : -1
+        ];
+
+        for (const next of neighbors) {
+          if (next < 0 || visited[next] || isBoundary(next)) continue;
+          visited[next] = 1;
+          queue[tail++] = next;
+        }
+
+        if (tail >= total) break;
+      }
+
+      // منع تعبئة المساحة الخارجية المفتوحة بالخطأ.
+      if (touchesEdge || tail < 2) return false;
+
+      // ضم حافة الخط إلى التعبئة عندما يكون لونها مطابقاً للون المختار.
+      const fillMask = visited.slice();
+      const targetR = parseInt(color.slice(1, 3), 16);
+      const targetG = parseInt(color.slice(3, 5), 16);
+      const targetB = parseInt(color.slice(5, 7), 16);
+
+      for (let index = 0; index < total; index++) {
+        if (!visited[index]) continue;
+
+        const x = index % width;
+        const y = Math.floor(index / width);
+
+        const neighbors = [
+          x > 0 ? index - 1 : -1,
+          x + 1 < width ? index + 1 : -1,
+          y > 0 ? index - width : -1,
+          y + 1 < height ? index + width : -1
+        ];
+
+        for (const next of neighbors) {
+          if (next < 0 || !boundary[next]) continue;
+
+          const p = next * 4;
+          if (
+            pixels[p + 3] > 12 &&
+            Math.abs(pixels[p] - targetR) <= 45 &&
+            Math.abs(pixels[p + 1] - targetG) <= 45 &&
+            Math.abs(pixels[p + 2] - targetB) <= 45
+          ) {
+            fillMask[next] = 1;
+          }
+        }
+      }
+
+      // تحويل المنطقة إلى مسارات مستطيلة متصلة، وليس صورة نقطية.
+      const parts = [];
+
+      // تحويل كل بكسل من صورة الفحص إلى إحداثيات SVG ثم إلى العالم.
+      const screenToWorld = (px, py) => {
+        const svgPoint = svg.createSVGPoint();
+        svgPoint.x = viewBox.x + px * viewBox.width / width;
+        svgPoint.y = viewBox.y + py * viewBox.height / height;
+
+        const screenPoint = svgPoint.matrixTransform(svgMatrix);
+
+        return this.coordinates.screenToWorld(
+          screenPoint.x,
+          screenPoint.y
+        );
+      };
+
+      for (let y = 0; y < height; y++) {
+        let x = 0;
+        while (x < width) {
+          while (x < width && !fillMask[y * width + x]) x++;
+          if (x >= width) break;
+
+          const start = x;
+          while (x < width && fillMask[y * width + x]) x++;
+          const end = x;
+
+          const a = screenToWorld(start, y);
+          const b = screenToWorld(end, y);
+          const c = screenToWorld(end, y + 1);
+          const d = screenToWorld(start, y + 1);
+
+          if (![a, b, c, d].every(p =>
+            p && Number.isFinite(p.x) && Number.isFinite(p.y)
+          )) return false;
+
+          parts.push(
+            `M${a.x} ${a.y}L${b.x} ${b.y}L${c.x} ${c.y}L${d.x} ${d.y}Z`
+          );
+
+          if (parts.length > 30000) return false;
+        }
+      }
+
+      if (!parts.length || this.activeLayer !== layer || !this.canDraw()) {
+        return false;
+      }
+
+      const element = {
+        id: globalThis.crypto?.randomUUID
+          ? `bucket-${globalThis.crypto.randomUUID()}`
+          : `bucket-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        type: "path",
+        path: parts.join(""),
+        tool: "bucket",
+        style: {
+          fill: color,
+          color,
+          size: 0,
+          opacity: 1
+        }
+      };
+
+      let committed = false;
+      if (typeof this.document.addElement === "function") {
+        committed = this.document.addElement(element);
+      } else {
+        layer.elements.push(element);
+        this.document.touch?.();
+        committed = true;
+      }
+
+      if (committed) {
+        this.commitHistory();
+        this.renderer.render(this.document);
+      }
+      return committed;
+    } catch (error) {
+      console.error("Bucket fill failed:", error);
+      return false;
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }
+  }
+
   eraseAt(point) {
     const layer = this.activeLayer;
-
     if (
       !layer ||
       layer.locked ||
       layer.visible === false ||
       !EngineUtils.validPoint(point)
-    ) {
-      return false;
-    }
+    ) return false;
 
     const radius = this.getEraserTolerance();
 
-    // النمط الثاني: ممحاة الخط بالكامل (Stroke Eraser)
+    // ممحاة الخط الكامل: تبقى كما هي.
     if (this.settings.eraserMode === "stroke") {
-      const result = HitTesting.hitTest(
-        layer.elements,
-        point,
-        radius
-      );
-
-      if (!result || this.erasedIds.has(result.id)) {
-        return false;
-      }
+      const result = HitTesting.hitTest(layer.elements, point, radius);
+      if (!result || this.erasedIds.has(result.id)) return false;
 
       const index = layer.elements.findIndex(
         element => element.id === result.id
       );
-
       if (index === -1) return false;
 
       layer.elements.splice(index, 1);
@@ -1257,10 +1653,28 @@ export class DrawingEngine {
       return true;
     }
 
-    // النمط الأول (الافتراضي): الممحاة العادية الجزئية (Partial Vector Segment Eraser)
     let modified = false;
     const elementsToRemove = [];
     const elementsToAdd = [];
+
+    const distanceToEraser = p =>
+      Math.hypot(p.x - point.x, p.y - point.y);
+
+    const interpolatePoint = (a, b, t) => ({
+      x: a.x + (b.x - a.x) * t,
+      y: a.y + (b.y - a.y) * t,
+      pressure:
+        EngineUtils.number(a.pressure, 1) +
+        (EngineUtils.number(b.pressure, 1) -
+          EngineUtils.number(a.pressure, 1)) * t,
+      time:
+        EngineUtils.number(a.time, 0) +
+        (EngineUtils.number(b.time, 0) -
+          EngineUtils.number(a.time, 0)) * t
+    });
+
+    const samePoint = (a, b) =>
+      Math.hypot(a.x - b.x, a.y - b.y) < 0.000001;
 
     for (let elIdx = 0; elIdx < layer.elements.length; elIdx++) {
       const element = layer.elements[elIdx];
@@ -1270,43 +1684,149 @@ export class DrawingEngine {
       if (dist > radius) continue;
 
       if (Array.isArray(element.points) && element.points.length > 0) {
-        const segments = [];
-        let currentSegment = [];
+        const points = element.points;
+        const fragments = [];
+        let current = [];
 
-        for (let i = 0; i < element.points.length; i++) {
-          const pt = element.points[i];
-          const d = Math.hypot(pt.x - point.x, pt.y - point.y);
+        const flushFragment = () => {
+          if (current.length > 1) fragments.push(current);
+          current = [];
+        };
 
-          if (d > radius) {
-            currentSegment.push(pt);
-          } else {
-            if (currentSegment.length > 0) {
-              segments.push(currentSegment);
-              currentSegment = [];
+        if (points.length === 1) {
+          if (distanceToEraser(points[0]) > radius) {
+            current.push({ ...points[0] });
+          }
+          flushFragment();
+        } else {
+          for (let i = 1; i < points.length; i++) {
+            const p0 = points[i - 1];
+            const p1 = points[i];
+            const dx = p1.x - p0.x;
+            const dy = p1.y - p0.y;
+
+            // نقاط تقاطع القطعة مع دائرة الممحاة.
+            const A = dx * dx + dy * dy;
+            const B = 2 * (
+              (p0.x - point.x) * dx +
+              (p0.y - point.y) * dy
+            );
+            const C =
+              (p0.x - point.x) ** 2 +
+              (p0.y - point.y) ** 2 -
+              radius * radius;
+
+            const cuts = [0, 1];
+
+            if (A > 0.0000001) {
+              const discriminant = B * B - 4 * A * C;
+              if (discriminant >= 0) {
+                const root = Math.sqrt(discriminant);
+                const t1 = (-B - root) / (2 * A);
+                const t2 = (-B + root) / (2 * A);
+
+                if (t1 > 0 && t1 < 1) cuts.push(t1);
+                if (t2 > 0 && t2 < 1) cuts.push(t2);
+              }
+            }
+
+            cuts.sort((x, y) => x - y);
+
+            for (let j = 1; j < cuts.length; j++) {
+              const t0 = cuts[j - 1];
+              const t1 = cuts[j];
+              if (t1 - t0 < 0.0000001) continue;
+
+              const middle = interpolatePoint(
+                p0,
+                p1,
+                (t0 + t1) / 2
+              );
+
+              if (distanceToEraser(middle) > radius) {
+                const from = interpolatePoint(p0, p1, t0);
+                const to = interpolatePoint(p0, p1, t1);
+
+                if (
+                  current.length &&
+                  samePoint(current[current.length - 1], from)
+                ) {
+                  if (!samePoint(current[current.length - 1], to)) {
+                    current.push(to);
+                  }
+                } else {
+                  flushFragment();
+                  current = [from, to];
+                }
+              } else {
+                flushFragment();
+              }
             }
           }
-        }
-        if (currentSegment.length > 0) {
-          segments.push(currentSegment);
+
+          flushFragment();
         }
 
-        if (segments.length === 1 && segments[0].length === element.points.length) {
-          continue;
+        const style = element.style || {};
+        const tool = element.tool || "pen";
+
+        for (const fragment of fragments) {
+          if (fragment.length < 2) continue;
+
+          // إعادة بناء الجزء بنفس نمط القلم بدلاً من تحويله إلى خط عادي.
+          const builder = new StrokeBuilder();
+          const started = builder.begin(fragment[0], {
+            size: style.size ?? 5,
+            color: style.color || "#111111",
+            opacity: style.opacity ?? 1,
+            tool,
+            calligraphyAngle:
+              element.calligraphyAngle ??
+              element.settings?.calligraphyAngle ??
+              this.settings.calligraphyAngle ??
+              45,
+            sensitivity:
+              element.sensitivity ??
+              this.settings.sensitivity ??
+              0.8,
+            pressureEnabled: element.pressureEnabled !== false,
+            brushStyle: {
+              lineCap: style.lineCap || "round",
+              lineJoin: style.lineJoin || "round",
+              dashArray: style.dashArray || "",
+              image: style.customBrush || null,
+              preset: element.brushStyle?.preset
+            }
+          });
+
+          if (!started) continue;
+
+          for (let i = 1; i < fragment.length; i++) {
+            builder.addPoint(fragment[i]);
+          }
+
+          const built = builder.build({
+            pressureEnabled: element.pressureEnabled !== false
+          });
+          if (!built) continue;
+
+          const newElement = EngineUtils.clone(element);
+          newElement.id = EngineUtils.createId("stroke");
+          newElement.points = built.points;
+          newElement.path = built.path;
+          newElement.renderMode = built.renderMode;
+          newElement.style = {
+            ...style,
+            ...built.style
+          };
+
+          elementsToAdd.push(newElement);
         }
 
         elementsToRemove.push(elIdx);
-
-        for (const seg of segments) {
-          if (seg.length === 0) continue;
-          const newEl = EngineUtils.clone(element);
-          newEl.id = EngineUtils.createId("stroke");
-          newEl.points = seg;
-          newEl.path = this.buildPath(seg);
-          elementsToAdd.push(newEl);
-        }
         modified = true;
       } else {
-        // Shapes or items without points array
+        // العناصر التي لا تحتوي نقاطاً تُحذف عند ملامسة الممحاة.
         elementsToRemove.push(elIdx);
         modified = true;
       }
@@ -1314,13 +1834,12 @@ export class DrawingEngine {
 
     if (!modified) return false;
 
-    // Apply removals from end to start
     for (let i = elementsToRemove.length - 1; i >= 0; i--) {
       layer.elements.splice(elementsToRemove[i], 1);
     }
-    // Append split segments
-    for (const newEl of elementsToAdd) {
-      layer.elements.push(newEl);
+
+    for (const newElement of elementsToAdd) {
+      layer.elements.push(newElement);
     }
 
     this.changed = true;

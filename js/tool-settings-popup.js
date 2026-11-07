@@ -33,6 +33,10 @@
   const presets = {
     round: { lineCap: "round", dashArray: "" },
     calligraphy: { lineCap: "round", dashArray: "", preset: "calligraphy" },
+  "cal-thuluth": { lineCap: "round", dashArray: "", preset: "cal-thuluth" },
+  "cal-naskh": { lineCap: "round", dashArray: "", preset: "cal-naskh" },
+  "cal-ruqah": { lineCap: "round", dashArray: "", preset: "cal-ruqah" },
+  "cal-fine": { lineCap: "round", dashArray: "", preset: "cal-fine" },
     chisel: { lineCap: "square", dashArray: "" },
     square: { lineCap: "square", dashArray: "" },
     dash: { lineCap: "round", dashArray: "8 5" },
@@ -88,7 +92,7 @@
     result.brush = settings[activeTool]?.brush || (activeTool === "calligraphy" ? "calligraphy" : "round");
     result.customBrush = settings[activeTool]?.customBrush || null;
     result.eraserMode = settings[activeTool]?.eraserMode || "partial";
-    result.calligraphyAngle = Number(document.getElementById("calligraphyAngle")?.value || 45);
+    result.calligraphyAngle = Number(document.getElementById("calligraphyAngle")?.value ?? 45);
 
     return result;
   }
@@ -121,7 +125,7 @@
           opacity: current.opacity,
           smoothing: current.smoothing,
           pressureEnabled: current.pressureEnabled,
-          calligraphyAngle: current.calligraphyAngle || 45,
+          calligraphyAngle: Number.isFinite(current.calligraphyAngle) ? current.calligraphyAngle : 45,
           brushStyle: {
             preset: brush,
             lineCap: style.lineCap || "round",
@@ -224,18 +228,20 @@
     if (angleInput && current.calligraphyAngle !== undefined) {
       angleInput.value = String(current.calligraphyAngle);
     }
+    syncCalligraphyWheel(
+      Number.isFinite(current.calligraphyAngle) ? current.calligraphyAngle : 45
+    );
 
     // Calligraphy row and presets visibility
-    const isCal = (tool === "calligraphy" || current.brush === "calligraphy");
+    const isCal = (
+      tool === "calligraphy" ||
+      current.brush === "calligraphy" ||
+      String(current.brush || "").startsWith("cal-")
+    );
     const calRow = document.getElementById("calligraphyAngleRow");
-    const calPresets = document.getElementById("calligraphyAnglePresets");
+    const calScale = document.getElementById("calligraphyAngleScale");
     if (calRow) calRow.style.display = isCal ? "flex" : "none";
-    if (calPresets) {
-      calPresets.style.display = isCal ? "grid" : "none";
-      calPresets.querySelectorAll("[data-angle]").forEach(btn => {
-        btn.classList.toggle("active", Number(btn.dataset.angle) === Number(current.calligraphyAngle || 45));
-      });
-    }
+    if (calScale) calScale.style.display = isCal ? "block" : "none";
 
     // Eraser mode row visibility
     const eraserRow = document.getElementById("eraserModeRow");
@@ -253,6 +259,15 @@
     const presetsSection = document.getElementById("brushPresetsSection");
     if (presetsSection) {
       presetsSection.style.display = tool === "eraser" ? "none" : "block";
+    }
+
+    const generalBrushes = popup.querySelector(".brush-presets-general");
+    const calligraphyBrushes = popup.querySelector(".brush-presets-calligraphy");
+    if (generalBrushes) {
+      generalBrushes.style.display = tool === "calligraphy" ? "none" : "grid";
+    }
+    if (calligraphyBrushes) {
+      calligraphyBrushes.style.display = tool === "calligraphy" ? "grid" : "none";
     }
 
     // Custom PNG preview & remove button
@@ -356,25 +371,56 @@
     });
   }
 
-  // Calligraphy Angle Presets handler
-  const calPresetsContainer = document.getElementById("calligraphyAnglePresets");
-  if (calPresetsContainer) {
-    calPresetsContainer.addEventListener("click", event => {
-      const btn = event.target.closest("[data-angle]");
-      if (!btn) return;
-      const angle = Number(btn.dataset.angle || 45);
-      const angleInput = document.getElementById("calligraphyAngle");
-      if (angleInput) angleInput.value = String(angle);
+
+  // Calligraphy angle wheel: fixed nib orientation.
+  function syncCalligraphyWheel(value) {
+    const wheel = document.getElementById("calligraphyAngleWheel");
+    const input = document.getElementById("calligraphyAngle");
+    const angle = Number(value);
+    const safeAngle = Number.isFinite(angle)
+      ? Math.max(0, Math.min(180, angle))
+      : 45;
+
+    if (input) input.value = String(safeAngle);
+
+    if (wheel) {
+      wheel.style.setProperty("--calligraphy-angle", safeAngle + "deg");
+
+      const output = wheel.querySelector("[data-wheel-value]");
+      if (output) output.textContent = Math.round(safeAngle) + "°";
+
+      const face = wheel.querySelector(".calligraphy-angle-face");
+      if (face) face.setAttribute("aria-valuenow", String(Math.round(safeAngle)));
+    }
+
+    const presets = document.getElementById("calligraphyAnglePresets");
+    if (presets) {
+      presets.querySelectorAll("[data-angle]").forEach(button => {
+        button.classList.toggle(
+          "active",
+          Number(button.dataset.angle) === safeAngle
+        );
+      });
+    }
+  }
+
+  // تحديث زاوية سن القلم مباشرة من الشريط.
+  const calligraphyAngleInput = document.getElementById("calligraphyAngle");
+
+  if (calligraphyAngleInput) {
+    calligraphyAngleInput.addEventListener("input", () => {
+      const angle = Math.max(
+        0,
+        Math.min(180, Number(calligraphyAngleInput.value) || 0)
+      );
+
+      calligraphyAngleInput.value = String(angle);
 
       if (!settings[activeTool]) settings[activeTool] = {};
       settings[activeTool].calligraphyAngle = angle;
 
-      calPresetsContainer.querySelectorAll("[data-angle]").forEach(b => {
-        b.classList.toggle("active", Number(b.dataset.angle) === angle);
-      });
-
-      save();
       updateOutputs();
+      save();
     });
   }
 
@@ -386,9 +432,16 @@
       if (!settings[activeTool]) settings[activeTool] = {};
       settings[activeTool].brush = button.dataset.brush;
 
+      const isCalligraphyBrush = button.dataset.brush === "calligraphy" || button.dataset.brush.startsWith("cal-");
+
       const calRow = document.getElementById("calligraphyAngleRow");
       if (calRow) {
-        calRow.style.display = button.dataset.brush === "calligraphy" ? "flex" : "none";
+        calRow.style.display = isCalligraphyBrush ? "flex" : "none";
+      }
+
+      const calScale = document.getElementById("calligraphyAngleScale");
+      if (calScale) {
+        calScale.style.display = isCalligraphyBrush ? "block" : "none";
       }
 
       save();

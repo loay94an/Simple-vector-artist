@@ -113,9 +113,9 @@
         </button>
 
         <!-- Export button -->
-        <button id="topExportBtn" class="header-action-btn primary" type="button" title="تصدير الرسم (SVG, PNG, PDF)">
+        <button id="topExportBtn" class="header-action-btn primary" type="button" title="مشاركة الرسم">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-          <span class="btn-text">تصدير</span>
+          <span class="btn-text">مشاركة</span>
         </button>
 
         <!-- PWA Install button (hidden until installable) -->
@@ -152,7 +152,7 @@
 
         <div class="settings-menu-items">
           <!-- Save Document Option -->
-          <div class="settings-menu-item highlight-item" style="border: 1px solid var(--primary-soft); background: var(--primary-soft);">
+          <div class="settings-menu-item settings-menu-action highlight-item" style="border: 1px solid var(--primary-soft); background: var(--primary-soft);">
             <div style="display:flex; align-items:center; gap:8px;">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
               <div style="text-align:right;">
@@ -163,7 +163,7 @@
             <button id="saveBtn" type="button" class="header-action-btn primary" style="font-weight:700;">حفظ الآن</button>
           </div>
 
-          <div class="settings-menu-item">
+          <div class="settings-menu-item settings-menu-action">
             <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1 1 0;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" x2="12" y1="12" y2="18"/><line x1="9" x2="15" y1="15" y2="15"/></svg>
               <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">لوحة رسم جديدة ومسح اللوحة</span>
@@ -171,7 +171,7 @@
             <button id="newCanvasBtn" type="button" class="header-action-btn" style="flex-shrink:0;">جديد</button>
           </div>
 
-          <div class="settings-menu-item settings-document-action">
+          <div class="settings-menu-item settings-menu-action settings-document-action">
             <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1 1 0;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
               <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:rtl; text-align:right;">إدراج ملف / <span dir="ltr">SVG / PDF / .rasem</span></span>
@@ -179,15 +179,15 @@
             <button id="importBtn" type="button" class="header-action-btn" style="flex-shrink:0;">استيراد</button>
           </div>
 
-          <div class="settings-menu-item settings-document-action">
+          <div class="settings-menu-item settings-menu-action settings-document-action">
             <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1 1 0;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-              <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:rtl; text-align:right;">تصدير الرسم (<span dir="ltr">SVG / PNG / PDF</span>)</span>
+              <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:rtl; text-align:right;">مشاركة الرسم (<span dir="ltr">SVG / PNG / PDF</span>)</span>
             </div>
-            <button id="exportBtn" type="button" class="header-action-btn" style="flex-shrink:0;">تصدير</button>
+            <button id="exportBtn" type="button" class="header-action-btn" style="flex-shrink:0;">مشاركة</button>
           </div>
 
-          <div class="settings-menu-item">
+          <div class="settings-menu-item settings-menu-action">
             <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1 1 0;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.9a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>
               <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:rtl; text-align:right;">إدارة الطبقات (<span dir="ltr">Layers</span>)</span>
@@ -292,6 +292,15 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m14 2-8 8 4 4 8-8-4-4Z"/><path d="m6 10-4 4 4 4 4-4"/><path d="m2 18 4 4"/></svg>
         </button>
 
+        <!-- Bucket Fill -->
+        <button class="tool" data-tool="bucket" id="bucketToolBtn" title="دلو التعبئة: تعبئة المنطقة المغلقة باللون الحالي">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m7 8 9 9a2 2 0 0 1-3 3l-9-9a2 2 0 0 1 3-3Z"/>
+            <path d="m6 7 3-3 10 10-3 3"/>
+            <path d="m14 4 2-2 6 6-2 2"/>
+            <path d="M19 19c0-1.2 1-2.2 1-3.2 0 1 1 2 1 3.2a1 1 0 0 1-2 0Z"/>
+          </svg>
+        </button>
         <!-- Smart Dual Eraser (ممحاة ذكية مزدوجة) -->
         <button class="tool" data-tool="eraser" id="eraserToolBtn" title="الممحاة (نقرة: تبديل النمط بين جزئي وخط / ضغطة طويلة: الإعدادات)">
           <svg id="eraserToolIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
@@ -350,19 +359,22 @@
         </div>
         <input id="smoothing" data-setting="smoothing" type="range" min="0" max="1" step="0.05" value="0.35">
 
-        <!-- Calligraphy angle row -->
+        <!-- Calligraphy angle slider -->
         <div class="tool-setting-row" id="calligraphyAngleRow" style="display:none;">
           <label for="calligraphyAngle">زاوية سن القلم</label>
           <output id="calligraphyAngleValue">45°</output>
         </div>
-        <div id="calligraphyAnglePresets" style="display:none; grid-template-columns:repeat(5,1fr); gap:4px; margin-bottom:8px;">
-          <button type="button" class="header-tool-btn" data-angle="0">0°</button>
-          <button type="button" class="header-tool-btn" data-angle="30">30°</button>
-          <button type="button" class="header-tool-btn active" data-angle="45">45°</button>
-          <button type="button" class="header-tool-btn" data-angle="60">60°</button>
-          <button type="button" class="header-tool-btn" data-angle="90">90°</button>
+        <div id="calligraphyAngleScale" style="display:none; margin:8px 0 12px;">
+          <div style="display:flex; justify-content:space-between; font-size:11px; opacity:.75; margin-bottom:5px;">
+            <span>0°</span>
+            <span>90°</span>
+            <span>180°</span>
+          </div>
+          <input id="calligraphyAngle" type="range"
+                 min="0" max="180" step="1" value="45"
+                 style="display:block; width:100%; direction:ltr;"
+                 aria-label="زاوية سن القلم من صفر إلى 180 درجة">
         </div>
-        <input id="calligraphyAngle" type="range" min="0" max="180" step="5" value="45" style="display:none;">
 
         <!-- Eraser Mode Row -->
         <div class="tool-setting-row" id="eraserModeRow" style="display:none; flex-direction:column; gap:8px;">
@@ -376,9 +388,9 @@
         <!-- Brush presets section -->
         <section id="brushPresetsSection" style="margin-top:12px;">
           <strong style="font-size:12px; display:block; margin-bottom:6px;">شكل ورأس الفرشاة:</strong>
-          <div class="tool-brush-presets" style="display:grid; grid-template-columns:repeat(2,1fr); gap:6px;">
+          <div class="tool-brush-presets brush-presets-general" style="display:grid; grid-template-columns:repeat(2,1fr); gap:6px;">
             <button type="button" data-brush="round" title="دائرية">● دائرية ناعمة</button>
-            <button type="button" data-brush="calligraphy" title="خط عربي">✒ خط عربي</button>
+
             <button type="button" data-brush="chisel" title="عريضة">■ عريضة هندسية</button>
             <button type="button" data-brush="spray" title="رش / بخاخ">░ رش / بخاخ</button>
             <button type="button" data-brush="watercolor" title="تلوين مائي">◉ ألوان مائية</button>
@@ -387,6 +399,12 @@
             <button type="button" data-brush="highlighter" title="تظليل">▮ قلم تظليل</button>
           </div>
 
+          <div class="brush-presets-calligraphy" style="display:none; grid-template-columns:repeat(2,1fr); gap:6px; margin-top:6px;">
+            <button type="button" data-brush="cal-thuluth" title="رأس عريض للثلث">✒ رأس الثلث</button>
+            <button type="button" data-brush="cal-naskh" title="رأس متوسط للنسخ">✒ رأس النسخ</button>
+            <button type="button" data-brush="cal-ruqah" title="رأس متوازن للرقعة">✒ رأس الرقعة</button>
+            <button type="button" data-brush="cal-fine" title="رأس دقيق للتفاصيل">✎ رأس دقيق</button>
+          </div>
           <!-- Custom PNG Brush Section -->
           <div style="margin-top:12px; padding:10px; border-radius:10px; background:var(--surface-2); border:1px dashed var(--border);">
             <label for="customBrushPNG" style="display:flex; align-items:center; justify-content:center; gap:6px; cursor:pointer; font-weight:600; font-size:12px;">
@@ -424,13 +442,12 @@
 
       <!-- FLOATING SELECTION ACTION BAR -->
       <div id="selectionActionBar" class="selection-action-bar">
-        <button id="selDuplicateBtn" type="button" title="مضاعفة العناصر المحددة">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-          <span>مضاعفة</span>
-        </button>
         <button id="selDeleteBtn" type="button" class="danger" title="حذف العناصر المحددة">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
           <span>حذف</span>
+        </button>
+        <button id="selConfirmBtn" type="button" title="تثبيت التعديل">
+          <span>✓ تثبيت</span>
         </button>
         <button id="selClearBtn" type="button" title="إلغاء التحديد">
           <span>إلغاء</span>
@@ -568,109 +585,86 @@
     </div>
   </div>
 
-  <!-- MODERN COMPREHENSIVE EXPORT MODAL -->
+  <!-- NEW SHARE SYSTEM -->
   <div id="exportModalBackdrop" class="modal-overlay-wrapper" hidden>
-    <div id="exportDialog" class="export-modal modal-box" role="dialog" aria-label="تصدير الرسم الرقمي">
+    <div id="exportDialog" class="export-modal modal-box" role="dialog"
+         aria-label="مشاركة الرسم" aria-modal="true">
+
       <div class="export-modal-head">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-          <h2 style="font-size:16px; margin:0; font-weight:700;">تصدير الرسم الرقمي</h2>
+        <div>
+          <h2 style="font-size:16px; margin:0; font-weight:700;">مشاركة الرسم</h2>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+            اختر نطاق المشاركة وصيغة الملف
+          </div>
         </div>
-        <button id="closeExportBtn" type="button" class="concepts-close-btn" aria-label="إغلاق">✕</button>
+        <button id="closeExportBtn" type="button"
+                class="concepts-close-btn" aria-label="إغلاق">✕</button>
       </div>
 
       <div class="export-modal-body">
-        <!-- Format Selection -->
-        <div>
-          <div class="export-section-title">صيغة الملف:</div>
-          <div class="export-format-grid">
-            <div class="export-format-card active" data-export-format="svg">
-              <strong>SVG</strong>
-              <span>فيكتور دقيق غير محدود</span>
-            </div>
-            <div class="export-format-card" data-export-format="png">
-              <strong>PNG</strong>
-              <span>صورة بكسلية عالية الدقة</span>
-            </div>
-            <div class="export-format-card" data-export-format="pdf">
-              <strong>PDF</strong>
-              <span>مستند طباعة فوري</span>
-            </div>
-          </div>
-        </div>
 
-        <!-- Scope Selection -->
-        <div>
-          <div class="export-section-title">نطاق التصدير ومساحة العمل:</div>
-          <div class="export-scope-options">
-            <label class="export-radio-label">
-              <input type="radio" name="exportScope" value="full" checked>
-              <div>
-                <strong>كامل عناصر الرسم (تلقائي بدون قص)</strong>
-                <div style="font-size:11px; color:var(--text-muted);">حساب المحيط الحقيقي لكافة العناصر المرسومة مع هوامش متناسقة</div>
-              </div>
-            </label>
+        <div class="export-section-title">ما الذي تريد مشاركته؟</div>
 
-            <label class="export-radio-label">
-              <input type="radio" name="exportScope" value="custom">
-              <div>
-                <strong>تحديد مساحة عمل مخصصة</strong>
-                <div style="font-size:11px; color:var(--text-muted);">تحديد أبعاد العرض والارتفاع المطلوب تصديرها بدقة</div>
-              </div>
-            </label>
-
-            <div id="customAreaInputs" class="export-custom-dimensions" style="display:none;">
-              <div class="export-dim-input">
-                <label>العرض (px):</label>
-                <input type="number" id="customExportWidth" value="1920" min="10">
-              </div>
-              <div class="export-dim-input">
-                <label>الارتفاع (px):</label>
-                <input type="number" id="customExportHeight" value="1080" min="10">
+        <div class="export-scope-options">
+          <label class="export-radio-label">
+            <input type="radio" name="shareScope" value="canvas" checked>
+            <div>
+              <strong>مشاركة الرسم الظاهر على الشاشة</strong>
+              <div style="font-size:11px;color:var(--text-muted);">
+                مشاركة الجزء الظاهر حالياً داخل مساحة العمل
               </div>
             </div>
+          </label>
 
-            <label class="export-radio-label">
-              <input type="radio" name="exportScope" value="canvas">
-              <div>
-                <strong>شاشة العرض الحالية</strong>
-                <div style="font-size:11px; color:var(--text-muted);">تصدير ما يظهر حالياً في الكاميرا (1600x1000)</div>
+          <label class="export-radio-label">
+            <input type="radio" name="shareScope" value="full">
+            <div>
+              <strong>مشاركة جميع الرسوم على اللوحة</strong>
+              <div style="font-size:11px;color:var(--text-muted);">
+                تضمين جميع العناصر حتى الموجودة خارج الجزء الظاهر
               </div>
-            </label>
-          </div>
-        </div>
-
-        <!-- Resolution Scale (for PNG and PDF) -->
-        <div id="exportScaleRow" style="display:none;">
-          <div class="export-section-title">مضاعف الدقة (Resolution):</div>
-          <div style="display:flex; gap:8px;">
-            <button type="button" class="header-tool-btn" data-scale="1">1x (عادي)</button>
-            <button type="button" class="header-tool-btn active" data-scale="2">2x (Retina فائق)</button>
-            <button type="button" class="header-tool-btn" data-scale="4">4x (Ultra 4K)</button>
-          </div>
-        </div>
-
-        <!-- Background options -->
-        <div id="exportBgRow">
-          <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
-            <input type="checkbox" id="exportTransparentBg">
-            <span>خلفية شفافة (بدون لون أبيض خلف الرسم)</span>
+            </div>
           </label>
         </div>
+
+        <div class="export-section-title" style="margin-top:18px;">
+          صيغة الملف
+        </div>
+
+        <div class="export-format-grid">
+          <button type="button" class="export-format-card active"
+                  data-share-format="svg">
+            <strong>SVG</strong>
+            <span>رسم متجهي</span>
+          </button>
+
+          <button type="button" class="export-format-card"
+                  data-share-format="png">
+            <strong>PNG</strong>
+            <span>صورة عالية الجودة</span>
+          </button>
+
+          <button type="button" class="export-format-card"
+                  data-share-format="pdf">
+            <strong>PDF</strong>
+            <span>مستند للطباعة</span>
+          </button>
+        </div>
+
       </div>
 
       <div class="export-modal-footer">
-        <button id="cancelExportBtn" type="button" class="header-action-btn">إلغاء</button>
-        <button id="executeExportBtn" type="button" class="header-action-btn primary" style="padding:0 16px; font-weight:700;">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-inline-end:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-          تحديد مكان الحفظ والتصدير
+        <button id="cancelExportBtn" type="button"
+                class="header-action-btn">إلغاء</button>
+
+        <button id="executeShareBtn" type="button"
+                class="header-action-btn primary"
+                style="padding:0 16px;font-weight:700;">
+          مشاركة الملف
         </button>
       </div>
     </div>
   </div>
-
-  <!-- NOTIFICATIONS TOAST -->
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <!-- INLINE CONTROLLERS FOR EXPORT, LAYERS & SELECTION -->
   <script>
@@ -878,11 +872,6 @@
       }
     });
 
-    document.getElementById("selDuplicateBtn")?.addEventListener("click", () => {
-      const selector = window.rasem?.tools?.get?.("selector");
-      selector?.duplicateSelected?.();
-    });
-
     document.getElementById("selDeleteBtn")?.addEventListener("click", () => {
       const selector = window.rasem?.tools?.get?.("selector");
       selector?.deleteSelected?.();
@@ -946,26 +935,24 @@
       syncCanvasBackgroundTheme(true);
     }
 
-    // 6. Export Dialog Controller
+    // 6. NEW SHARE DIALOG CONTROLLER
+
     const exportDialog = document.getElementById("exportDialog");
     const topExportBtn = document.getElementById("topExportBtn");
     const openExportMenuBtn = document.getElementById("exportBtn");
     const closeExportBtn = document.getElementById("closeExportBtn");
     const cancelExportBtn = document.getElementById("cancelExportBtn");
     const exportModalBackdrop = document.getElementById("exportModalBackdrop");
-    const executeExportBtn = document.getElementById("executeExportBtn");
-    const customAreaInputs = document.getElementById("customAreaInputs");
-    const exportScaleRow = document.getElementById("exportScaleRow");
+    const executeShareBtn = document.getElementById("executeShareBtn");
 
-    let currentFormat = "svg";
-    let currentScale = 2;
+    let currentShareFormat = "svg";
 
     function openExport() {
-      if (exportDialog) {
-        window.rasemCloseAllModals();
-        exportDialog.hidden = false;
-        if (exportModalBackdrop) exportModalBackdrop.hidden = false;
-      }
+      if (!exportDialog) return;
+
+      window.rasemCloseAllModals?.();
+      exportModalBackdrop.hidden = false;
+      exportDialog.hidden = false;
     }
 
     function closeExport() {
@@ -977,99 +964,92 @@
     openExportMenuBtn?.addEventListener("click", openExport);
     closeExportBtn?.addEventListener("click", closeExport);
     cancelExportBtn?.addEventListener("click", closeExport);
+
     exportModalBackdrop?.addEventListener("click", (e) => {
       if (e.target === exportModalBackdrop) closeExport();
     });
+
     exportDialog?.addEventListener("click", (e) => {
       e.stopPropagation();
     });
 
-    // Format Cards selection
-    document.querySelectorAll("[data-export-format]").forEach(card => {
+    // اختيار صيغة المشاركة
+    document.querySelectorAll("[data-share-format]").forEach(card => {
       card.addEventListener("click", () => {
-        document.querySelectorAll("[data-export-format]").forEach(c => c.classList.remove("active"));
+        document.querySelectorAll("[data-share-format]").forEach(item => {
+          item.classList.remove("active");
+        });
+
         card.classList.add("active");
-        currentFormat = card.dataset.exportFormat;
-        if (exportScaleRow) {
-          exportScaleRow.style.display = currentFormat === "svg" ? "none" : "block";
-        }
+        currentShareFormat = card.dataset.shareFormat;
       });
     });
 
-    // Scope Radio changes
-    document.querySelectorAll('input[name="exportScope"]').forEach(radio => {
-      radio.addEventListener("change", () => {
-        if (customAreaInputs) {
-          customAreaInputs.style.display = radio.value === "custom" ? "grid" : "none";
-        }
-      });
-    });
-
-    // Scale buttons
-    document.querySelectorAll("[data-scale]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll("[data-scale]").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        currentScale = Number(btn.dataset.scale || 2);
-      });
-    });
-
-    // Execute Export
-    executeExportBtn?.addEventListener("click", async () => {
+    // إنشاء الملف ثم فتح نافذة المشاركة
+    executeShareBtn?.addEventListener("click", async () => {
       const doc = window.rasem?.document;
+
       if (!doc) {
-        alert("لا يوجد مستند للتصدير");
+        alert("لا يوجد رسم لمشاركته.");
         return;
       }
 
-      executeExportBtn.disabled = true;
-      executeExportBtn.textContent = "جاري التصدير...";
+      executeShareBtn.disabled = true;
+      executeShareBtn.textContent = "جاري تجهيز الملف...";
 
       try {
-        const scope = document.querySelector('input[name="exportScope"]:checked')?.value || "full";
-        const transparent = document.getElementById("exportTransparentBg")?.checked || false;
-        const bg = transparent ? undefined : "#ffffff";
+        const scope =
+          document.querySelector('input[name="shareScope"]:checked')?.value
+          || "canvas";
 
-        let options = {
+        const options = {
           mode: scope,
-          scale: currentScale,
-          background: bg
+          scale: 2,
+          background: "#ffffff"
         };
 
-        if (scope === "custom") {
-          const w = Number(document.getElementById("customExportWidth")?.value || 1920);
-          const h = Number(document.getElementById("customExportHeight")?.value || 1080);
-          options.area = { x: 0, y: 0, width: w, height: h };
-        }
-
-        const data = typeof doc.toJSON === "function" ? doc.toJSON() : doc;
+        const data =
+          typeof doc.toJSON === "function" ? doc.toJSON() : doc;
 
         const storageModule = await import("./js/storage-export.js");
-        let exported = false;
-        if (currentFormat === "svg") {
-          exported = await storageModule.SVGExport.download(data, options);
-        } else if (currentFormat === "png") {
-          exported = await storageModule.PNGExport.download(data, options);
-        } else if (currentFormat === "pdf") {
-          exported = await storageModule.PDFExport.download(data, options);
+
+        let blob;
+        const extension = currentShareFormat;
+        const filename = `rasem-drawing-${Date.now()}.${extension}`;
+
+        if (currentShareFormat === "svg") {
+          blob = storageModule.SVGExport.export(data, options);
+        } else if (currentShareFormat === "png") {
+          blob = await storageModule.PNGExport.export(data, options);
+        } else if (currentShareFormat === "pdf") {
+          blob = await storageModule.PDFExport.export(data, options);
+        } else {
+          throw new Error("صيغة المشاركة غير مدعومة.");
         }
 
-        closeExport();
-        const toast = document.getElementById("toast");
-        if (toast && exported !== false) {
-          toast.textContent = "تم تجهيز وتصدير الملف بنجاح";
-          toast.classList.add("show");
-          setTimeout(() => toast.classList.remove("show"), 2500);
+        if (!(blob instanceof Blob)) {
+          throw new Error("تعذر إنشاء ملف المشاركة.");
         }
+
+        const shared = await storageModule.shareBlob(blob, filename);
+
+        if (shared) {
+          closeExport();
+
+          const toast = document.getElementById("toast");
+          if (toast) {
+            toast.textContent = "تم تجهيز الملف للمشاركة";
+            toast.classList.add("show");
+            setTimeout(() => toast.classList.remove("show"), 2500);
+          }
+        }
+
       } catch (err) {
-        console.error("Export error:", err);
-        alert("حدث خطأ أثناء التصدير: " + err.message);
+        console.error("Share error:", err);
+        alert("تعذرت مشاركة الملف: " + (err?.message || err));
       } finally {
-        executeExportBtn.disabled = false;
-        executeExportBtn.innerHTML = `
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-inline-end:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-          تحديد مكان الحفظ والتصدير
-        `;
+        executeShareBtn.disabled = false;
+        executeShareBtn.textContent = "مشاركة الملف";
       }
     });
 
@@ -1095,6 +1075,9 @@
 
   })();
   </script>
+
+
+
 
   <!-- MODULE SCRIPTS -->
   <script type="module" src="./js/color-ui.js"></script>
